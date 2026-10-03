@@ -1,0 +1,25 @@
+Stellaris Save Inspector
+
+Requirements
+- Windows with Windows PowerShell 5.1 or newer. Node.js is not required.
+- A local Stellaris installation. Game assets are not included.
+- A current Chrome or Microsoft Edge browser.
+
+Installation
+1. Extract SaveInspector anywhere outside the Stellaris installation.
+2. Double-click start.cmd (or launch-inspector.cmd). It starts the server in the background and opens the page.
+3. Open "Папка игры", enter the full path to the Stellaris installation (the folder containing common, gfx and localisation), and click "Сохранить". This setting persists between launches in settings.local.json and is not committed to Git.
+4. If a message says the server cannot start, make sure port 8765 is free. An older inspector server must be stopped first.
+5. Click Open save and select your .sav file.
+6. The local server runs hidden and is reused when the launcher is opened again.
+
+Saves are processed locally in the browser, not uploaded.
+Do not expose the local server to the internet.
+If port 8765 is occupied, stop the previous inspector instance first.
+
+The bundled manifests refer to files from the developer's game installation.
+Other game versions or missing DLC assets may cause loading errors or missing
+icons. Mod-only definitions and assets are not included. See README.md for
+supported save formats and calculation limitations.
+
+This is an unofficial tool, not affiliated with Paradox Interactive.
