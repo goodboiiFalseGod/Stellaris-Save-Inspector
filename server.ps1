@@ -178,7 +178,12 @@ try
                         $settings = @{gameLocation = $gameRoot} | ConvertTo-Json -Compress
                         $temporaryPath = "$settingsPath.tmp"
                         [IO.File]::WriteAllText($temporaryPath, $settings, [Text.Encoding]::UTF8)
-                        if ([IO.File]::Exists($settingsPath)) { [IO.File]::Replace($temporaryPath, $settingsPath, $null) }
+                        if ([IO.File]::Exists($settingsPath))
+                        {
+                            $backupPath = "$settingsPath.backup"
+                            [IO.File]::Replace($temporaryPath, $settingsPath, $backupPath)
+                            [IO.File]::Delete($backupPath)
+                        }
                         else { [IO.File]::Move($temporaryPath, $settingsPath) }
                     }
                     elseif ($method -ne 'GET') { throw [ArgumentException]::new('Метод не поддерживается.') }
@@ -201,6 +206,20 @@ try
             {
                 # Только сведения о возможностях локального сервера, без путей и сохранений.
                 $body = '{"backend":"powershell","latestSave":true,"liveSnapshot":true}'
+                Write-Response $stream 200 'OK' 'application/json; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes($body)) ($method -eq 'HEAD')
+                continue
+            }
+            if ($requestPath -in @('/SaveInspector/english-files.json', '/SaveInspector/ship-size-files.json', '/SaveInspector/combat-files.json') -and $gameRoot)
+            {
+                $definitions = if ($requestPath -like '*english-files.json') { @{english = 'localisation\english'} } elseif ($requestPath -like '*ship-size-files.json') { @{ships = 'common\ship_sizes'} } else { @{components = 'common\component_templates'; sections = 'common\section_templates'; slots = 'common\component_slot_templates'; technologies = 'common\technology'; hulls = 'common\ship_sizes'; variables = 'common\scripted_variables'; defines = 'common\defines'} }
+                $manifest = @{}
+                foreach ($kind in $definitions.Keys)
+                {
+                    $directory = Join-Path $gameRoot $definitions[$kind]
+                    $files = @(Get-ChildItem -LiteralPath $directory -Filter $(if ($kind -eq 'english') { '*_l_english.yml' } else { '*.txt' }) -File -Recurse -ErrorAction Stop | ForEach-Object { '../' + $_.FullName.Substring($gameRoot.Length + 1).Replace('\', '/') })
+                    if ($kind -eq 'english' -or $kind -eq 'ships') { $manifest = $files } else { $manifest[$kind] = $files }
+                }
+                $body = ConvertTo-Json -InputObject $manifest -Depth 4 -Compress
                 Write-Response $stream 200 'OK' 'application/json; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes($body)) ($method -eq 'HEAD')
                 continue
             }

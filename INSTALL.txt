@@ -17,7 +17,7 @@ Saves are processed locally in the browser, not uploaded.
 Do not expose the local server to the internet.
 If port 8765 is occupied, stop the previous inspector instance first.
 
-The bundled manifests refer to files from the developer's game installation.
+The bundled icon mappings still refer to files from the developer's game installation.
 Other game versions or missing DLC assets may cause loading errors or missing
 icons. Mod-only definitions and assets are not included. See README.md for
 supported save formats and calculation limitations.

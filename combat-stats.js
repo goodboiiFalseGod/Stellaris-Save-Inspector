@@ -88,7 +88,13 @@
       const jobs = Object.entries(manifest).flatMap(([kind, paths]) => { sources[kind] = new Array(paths.length); return paths.map((path, index) => ({kind, path, index})); });
       let next = 0;
       await Promise.all(Array.from({length: 8}, async () => { while (next < jobs.length) { const job = jobs[next++]; sources[job.kind][job.index] = await read(job.path); } }));
-      const csv = await Promise.all(['weapon_components.csv', 'mutation_weapon_components.csv'].map(file => read(`../common/component_templates/${file}`)));
+      const csv = await Promise.all(['weapon_components.csv', 'mutation_weapon_components.csv'].map(async file => {
+        const path = `../common/component_templates/${file}`;
+        const response = await fetch(path);
+        if (response.status === 404 && file === 'mutation_weapon_components.csv') return '';
+        if (!response.ok) throw new Error(`Combat definitions unavailable: ${path}`);
+        return response.text();
+      }));
       return initialize(sources, csv);
     })().catch(error => { pending = undefined; throw error; });
     return pending;

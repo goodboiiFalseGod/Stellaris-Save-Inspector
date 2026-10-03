@@ -65,6 +65,15 @@ http.createServer(async (request, response) => {
     } catch (error) { return json(response, 400, {error: error.message}); }
   }
   if (requestPath === '/SaveInspector/server-info') return json(response, 200, {backend: 'node', latestSave: false, liveSnapshot: false});
+  if (['/SaveInspector/english-files.json', '/SaveInspector/ship-size-files.json', '/SaveInspector/combat-files.json'].includes(requestPath) && gameRoot) {
+    const list = (directory, suffix) => fs.readdirSync(path.join(gameRoot, directory), {withFileTypes: true}).flatMap(entry => {
+      const relative = path.join(directory, entry.name);
+      return entry.isDirectory() ? list(relative, suffix) : entry.name.endsWith(suffix) ? ['../' + relative.replace(/\\/g, '/')] : [];
+    });
+    if (requestPath.endsWith('english-files.json')) return json(response, 200, list('localisation/english', '_l_english.yml'));
+    if (requestPath.endsWith('ship-size-files.json')) return json(response, 200, list('common/ship_sizes', '.txt'));
+    return json(response, 200, {components: list('common/component_templates', '.txt'), sections: list('common/section_templates', '.txt'), slots: list('common/component_slot_templates', '.txt'), technologies: list('common/technology', '.txt'), hulls: list('common/ship_sizes', '.txt'), variables: list('common/scripted_variables', '.txt'), defines: list('common/defines', '.txt')});
+  }
   if (requestPath === '/SaveInspector/technology-manifest') {
     if (!gameRoot) return json(response, 503, {error: 'Выберите папку Stellaris в настройках.'});
     const list = directory => fs.readdirSync(directory, {withFileTypes: true}).flatMap(entry => entry.isDirectory() ? list(path.join(directory, entry.name)) : entry.name.endsWith('.txt') ? [path.relative(gameRoot, path.join(directory, entry.name)).replace(/\\/g, '/')] : []);
