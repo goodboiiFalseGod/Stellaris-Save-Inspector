@@ -11,7 +11,7 @@
     <header><div><div class="eyebrow">STELLARIS · SAVE INSPECTOR</div><h1>Galactic empires</h1></div><div class="save-meta" id="meta">Choose a Stellaris .sav file</div></header>
     <div class="top-menu-handle"><button id="map-top-toggle" type="button" aria-expanded="true">Hide top menu</button></div>
     <div class="toolbar">
-      <div class="file-actions"><label class="open-save">Open save<input id="file" type="file" accept=".sav,.zip"></label><button id="latest-save" type="button">Latest save</button><button id="clear" type="button">Clear</button><button id="tutorial" type="button">Try tutorial</button><button id="live-map" type="button">Карта из памяти</button><details class="game-location-settings" id="game-location-settings"><summary>Папка игры</summary><form id="game-location-form"><label for="game-location-input">Путь к Stellaris</label><input id="game-location-input" type="text" placeholder="E:\SteamLibrary\steamapps\common\Stellaris" autocomplete="off" spellcheck="false" required><button type="submit">Сохранить</button><small id="game-location-status">Укажите папку с common, gfx и localisation.</small></form></details></div>
+      <div class="file-actions"><label class="open-save">Open save<input id="file" type="file" accept=".sav,.zip"></label><button id="client-game-folder" type="button" hidden>Папка Stellaris</button><input id="client-game-files" class="client-folder-input" type="file" webkitdirectory multiple><button id="client-save-folder" type="button" hidden>Папка сейвов</button><input id="client-save-files" class="client-folder-input" type="file" webkitdirectory multiple><button id="latest-save" type="button">Latest save</button><button id="watch-saves" type="button" aria-pressed="false" title="Автоматически загружать новые сохранения этой партии">Следить за сейвами</button><button id="clear" type="button">Clear</button><button id="tutorial" type="button">Try tutorial</button><button id="live-map" type="button">Карта из памяти</button><details class="game-location-settings" id="game-location-settings"><summary>Папка игры</summary><form id="game-location-form"><label for="game-location-input">Путь к Stellaris</label><input id="game-location-input" type="text" placeholder="E:\SteamLibrary\steamapps\common\Stellaris" autocomplete="off" spellcheck="false" required><button type="submit">Сохранить</button><small id="game-location-status">Укажите папку с common, gfx и localisation.</small></form></details></div>
       <div id="status" role="status">All parsing is local — no save data is uploaded.</div>
     </div>
     <div class="navigation-controls">
@@ -99,6 +99,7 @@
     </section>
     <section id="empires"><div class="empty">Open a non-Ironman Stellaris save to inspect its empires.</div></section>
   </main>
+  <script src="client-files.js"></script>
   <script>
     const fileInput = document.querySelector('#file');
     const empireList = document.querySelector('#empires');
@@ -108,12 +109,119 @@
     const gameLocationInput = document.querySelector('#game-location-input');
     const gameLocationStatus = document.querySelector('#game-location-status');
     const gameLocationForm = document.querySelector('#game-location-form');
-    fetch('game-location', {headers: {'X-Stellaris-Config': '1'}}).then(async response => {
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Не удалось прочитать настройки.');
-      if (result.gameLocation) { gameLocationInput.value = result.gameLocation; gameLocationStatus.textContent = 'Настройка сохранена между запусками.'; }
-      else { gameSettings.open = true; status.textContent = 'Выберите папку Stellaris для загрузки игровых файлов.'; }
-    }).catch(error => { gameSettings.open = true; gameLocationStatus.textContent = error.message; });
+    const clientGameButton = document.querySelector('#client-game-folder');
+    const clientSaveButton = document.querySelector('#client-save-folder');
+    const clientGameInput = document.querySelector('#client-game-files');
+    const clientSaveInput = document.querySelector('#client-save-files');
+    const clientFiles = window.ClientFiles || null;
+    let clientGameUsed = false;
+    let serverCapabilities = {public: false, latestSave: true, liveSnapshot: true, gameLocationConfig: true, gameFilesSource: 'server', saveFilesSource: 'server'};
+    function usesClientGameFiles() { return serverCapabilities.gameFilesSource === 'client'; }
+    function usesClientSaveFiles() { return serverCapabilities.saveFilesSource === 'client'; }
+    function updateClientFileControls() {
+      clientGameButton.hidden = !usesClientGameFiles();
+      clientSaveButton.hidden = !usesClientSaveFiles();
+      clientGameButton.textContent = clientFiles?.hasGameAccess() ? 'Stellaris подключён' : clientFiles?.hasGameDirectory() ? 'Подключить Stellaris снова' : 'Папка Stellaris';
+      clientSaveButton.textContent = clientFiles?.hasSaveAccess() ? 'Сейвы подключены' : clientFiles?.hasSaveDirectory() ? 'Подключить сейвы снова' : 'Папка сейвов';
+      document.querySelector('#latest-save').hidden = serverCapabilities.latestSave === false && !usesClientSaveFiles();
+      document.querySelector('#watch-saves').hidden = usesClientSaveFiles() ? !clientFiles?.canWatch : serverCapabilities.latestSave === false;
+    }
+    async function initializeServerCapabilities() {
+      try {
+        const response = await fetch('server-info');
+        if (response.ok) serverCapabilities = {...serverCapabilities, ...(await response.json())};
+      } catch (error) {
+        if (typeof location !== 'undefined') console.warn('Не удалось прочитать возможности сервера:', error);
+      }
+      document.querySelector('#live-map').hidden = serverCapabilities.liveSnapshot === false;
+      gameSettings.hidden = serverCapabilities.gameLocationConfig === false;
+      if (serverCapabilities.public) {
+        document.body.classList.add('public-mode');
+        document.querySelector('#tutorial').hidden = true;
+        if (usesClientGameFiles() || usesClientSaveFiles()) {
+          if (!clientFiles) throw new Error('Модуль локальных файлов не загружен.');
+          await clientFiles.initialize();
+          if (clientFiles.hasGameDirectory() || clientFiles.hasSaveDirectory()) {
+            try { await clientFiles.enable('restore'); }
+            catch (error) { console.warn('Требуется повторное разрешение на локальные папки:', error); }
+          }
+          updateClientFileControls();
+          const modeNote = clientFiles.mode === 'persistent' ? 'Доступ сохраняется в браузере.' : 'На HTTP папки нужно выбирать заново после перезагрузки.';
+          status.textContent = clientFiles.hasGameAccess() ? `Игровые файлы читаются только с этого устройства. ${modeNote}` : `Выберите папку Stellaris на своём устройстве. ${modeNote}`;
+        } else {
+          status.textContent = 'Public mode: open saves are processed locally in your browser.';
+        }
+        return;
+      }
+      updateClientFileControls();
+      if (serverCapabilities.gameLocationConfig === false) return;
+      try {
+        const response = await fetch('game-location', {headers: {'X-Stellaris-Config': '1'}});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Не удалось прочитать настройки.');
+        if (result.gameLocation) { gameLocationInput.value = result.gameLocation; gameLocationStatus.textContent = 'Настройка сохранена между запусками.'; }
+        else { gameSettings.open = true; status.textContent = 'Выберите папку Stellaris для загрузки игровых файлов.'; }
+      } catch (error) { gameSettings.open = true; gameLocationStatus.textContent = error.message; }
+    }
+    const serverCapabilitiesReady = initializeServerCapabilities();
+    function prepareClientSourceChange() {
+      liveRevision++;
+      stopLiveRuntime();
+      stopWatchingSaves();
+    }
+    function resetClientSaveRevision() {
+      latestRevision = '';
+      ignoredLatestRevision = '';
+    }
+    async function connectClientGameDirectory() {
+      try {
+        if (clientFiles.mode === 'persistent') {
+          prepareClientSourceChange();
+          await clientFiles.chooseGameDirectory();
+          await clientFiles.enable('game');
+          location.reload();
+        } else {
+          if (clientGameUsed) { status.textContent = 'Чтобы сменить папку Stellaris без смешивания данных, перезагрузите страницу и выберите новую папку.'; return; }
+          clientGameInput.click();
+        }
+      } catch (error) { status.textContent = `Не удалось подключить папку Stellaris: ${error.message}`; }
+    }
+    async function connectClientSaveDirectory() {
+      try {
+        prepareClientSourceChange();
+        resetClientSaveRevision();
+        if (clientFiles.mode === 'persistent') {
+          await clientFiles.chooseSaveDirectory();
+          await clientFiles.enable('save');
+          updateClientFileControls();
+          status.textContent = 'Папка сохранений подключена. Latest Save работает локально.';
+        } else {
+          clientSaveInput.click();
+        }
+      } catch (error) { status.textContent = `Не удалось подключить папку сохранений: ${error.message}`; }
+    }
+    clientGameButton.addEventListener('click', connectClientGameDirectory);
+    clientSaveButton.addEventListener('click', connectClientSaveDirectory);
+    clientGameInput.addEventListener('change', async event => {
+      try {
+        if (clientGameUsed) throw new Error('Перезагрузите страницу перед сменой папки Stellaris.');
+        prepareClientSourceChange();
+        clientFiles.setGameFiles(event.target.files);
+        await clientFiles.enable('game');
+        updateClientFileControls();
+        status.textContent = 'Папка Stellaris подключена до перезагрузки страницы. Ассеты читаются локально.';
+      } catch (error) { status.textContent = `Не удалось подключить папку Stellaris: ${error.message}`; }
+    });
+    clientSaveInput.addEventListener('change', async event => {
+      try {
+        prepareClientSourceChange();
+        resetClientSaveRevision();
+        clientFiles.setSaveFiles(event.target.files);
+        await clientFiles.enable('save');
+        updateClientFileControls();
+        status.textContent = 'Сейвы подключены до перезагрузки страницы. Latest Save работает локально.';
+      } catch (error) { status.textContent = `Не удалось подключить папку сохранений: ${error.message}`; }
+    });
     gameLocationForm.addEventListener('submit', async event => {
       event.preventDefault();
       const button = gameLocationForm.querySelector('button');
@@ -129,14 +237,26 @@
     let liveRevision = 0;
     let liveRuntime;
     let liveReadOperation;
+    let watchingSaves = false, watchTimer, watchAbort, latestRevision = '', ignoredLatestRevision = '', hasSave = false;
+    const watchButton = document.querySelector('#watch-saves');
+    function stopWatchingSaves() {
+      if (watchingSaves) liveRevision++;
+      watchingSaves = false;
+      clearTimeout(watchTimer);
+      watchAbort?.abort();
+      watchAbort = undefined;
+      watchButton.setAttribute('aria-pressed', 'false');
+      watchButton.textContent = 'Следить за сейвами';
+    }
     function stopLiveRuntime() { liveRuntime?.stop(); liveButton.textContent = 'Карта из памяти'; }
-    for (const id of ['clear', 'tutorial', 'file']) document.querySelector(`#${id}`).addEventListener(id === 'file' ? 'change' : 'click', () => { liveRevision++; stopLiveRuntime(); });
+    for (const id of ['clear', 'tutorial', 'file']) document.querySelector(`#${id}`).addEventListener(id === 'file' ? 'change' : 'click', () => { liveRevision++; stopLiveRuntime(); stopWatchingSaves(); });
 
     const liveButton = document.querySelector('#live-map');
     liveButton.type = 'button'; liveButton.textContent = 'Карта из памяти';
     liveButton.title = 'Включить/остановить автообновление RAM. Shift+клик: новый поиск. Ctrl не используется.';
     liveButton.addEventListener('click', event => {
       if (liveRuntime?.running && !event.shiftKey) { stopLiveRuntime(); status.textContent = 'Автообновление RAM остановлено. На карте последний снимок.'; return; }
+      stopWatchingSaves();
       liveRuntime?.stop();
       const revision = ++liveRevision;
       let first = true, forceRescan = event.shiftKey, lastDiscovery = Date.now();
@@ -186,41 +306,63 @@
       liveRuntime.start();
     });
 
-    async function loadSave(file, revision) {
+    async function loadSave(file, revision, options = {}) {
       try {
-        status.textContent = 'Reading save…';
+        if (file.size > 512 * 1024 * 1024) throw new Error('Сохранение превышает безопасный лимит 512 МиБ.');
+        if (usesClientGameFiles()) clientGameUsed = true;
+        status.textContent = options.watch ? 'Найден новый сейв · обновляю данные…' : 'Reading save…';
         const gamestate = await readZipEntry(await file.arrayBuffer(), 'gamestate');
         const text = new TextDecoder().decode(gamestate);
         if (!/\bcountry\s*=\s*\{/.test(text)) throw new Error('This save uses a binary or unsupported gamestate. Export an unencrypted/non-Ironman save.');
         const saveMeta = await tryReadMeta(file);
         status.textContent = 'Loading English game localization…';
         await Promise.all([English.load(), ShipTypes.load(), CombatStats.load()]);
-        if (revision !== liveRevision) return;
+        if (revision !== liveRevision) return false;
         const countries = parseCountries(text);
-        render(countries, parseGalaxy(text, countries), parseMetadata(saveMeta || text), file.name, text);
-        status.textContent = 'Loaded locally.';
+        const galaxy = parseGalaxy(text, countries), info = parseMetadata(saveMeta || text);
+        if (revision !== liveRevision) return false;
+        const preserve = hasSave && GalaxyMap.sameGalaxy(galaxy);
+        if (options.watch && hasSave && !preserve) {
+          ignoredLatestRevision = options.latestRevision || '';
+          status.textContent = 'Новый сейв относится к другой галактике. Автообновление ждёт сейв текущей партии.';
+          return false;
+        }
+        render(countries, galaxy, info, file.name, text, {preserve});
+        hasSave = true;
+        latestRevision = options.latestRevision || '';
+        ignoredLatestRevision = '';
+        status.textContent = options.watch ? `Обновлено из ${file.name} · ${info.date}` : `Loaded locally · ${info.date}`;
+        return true;
       } catch (error) {
-        if (revision !== liveRevision) return;
-        empireList.innerHTML = `<div class="empty">Could not read this save: ${escapeHtml(error.message)}</div>`;
-        meta.textContent = 'No data loaded';
-        status.textContent = 'Choose a standard .sav archive.';
+        if (revision !== liveRevision) return false;
+        if (!hasSave) { empireList.innerHTML = `<div class="empty">Could not read this save: ${escapeHtml(error.message)}</div>`; meta.textContent = 'No data loaded'; }
+        status.textContent = `Не удалось прочитать сейв: ${error.message}. ${hasSave ? 'Показаны предыдущие данные.' : 'Выберите другой файл.'}`;
+        return false;
       }
     }
 
-    fileInput.addEventListener('change', event => {
+    fileInput.addEventListener('change', async event => {
+      await serverCapabilitiesReady;
       const file = event.target.files[0];
-      if (file) loadSave(file, liveRevision);
+      if (!file) return;
+      if (usesClientGameFiles() && !clientFiles.hasGameAccess()) {
+        status.textContent = 'Сначала выберите папку Stellaris: локализация и изображения читаются с вашего устройства.';
+        return;
+      }
+      loadSave(file, liveRevision);
     });
 
-    document.querySelector('#latest-save').addEventListener('click', async () => {
-      const button = document.querySelector('#latest-save');
-      const revision = ++liveRevision;
-      stopLiveRuntime();
-      fileInput.value = '';
-      button.disabled = true;
-      status.textContent = 'Searching for the latest Stellaris save…';
+    async function fetchLatestSave(revision, options = {}) {
+      const {signal, watch = false} = options;
       try {
-        const response = await fetch('latest-save', {headers: {'X-Stellaris-Save': '1'}});
+        if (usesClientSaveFiles()) {
+          const latest = await clientFiles.latestSave();
+          const file = latest.file;
+          const clientRevision = latest.revision;
+          if (revision !== liveRevision) return false;
+          return await loadSave(file, revision, {watch, latestRevision: clientRevision});
+        }
+        const response = await fetch('latest-save', {headers: {'X-Stellaris-Save': '1'}, signal});
         if (!response.ok) {
           let message = 'Latest save could not be loaded.';
           try { message = (await response.json()).error || message; } catch { /* Сервер мог вернуть обычный текст. */ }
@@ -231,18 +373,72 @@
         try { fileName = decodeURIComponent(encodedName); } catch { /* Используем безопасное имя по умолчанию. */ }
         const modified = Date.parse(response.headers.get('X-Stellaris-Modified') || '');
         const file = new File([await response.arrayBuffer()], fileName, {type: 'application/zip', lastModified: Number.isFinite(modified) ? modified : Date.now()});
-        if (revision !== liveRevision) return;
-        await loadSave(file, revision);
+        if (revision !== liveRevision) return false;
+        return await loadSave(file, revision, {watch, latestRevision: response.headers.get('X-Stellaris-Revision') || ''});
       } catch (error) {
-        if (revision !== liveRevision) return;
-        status.textContent = `Could not load latest save: ${error.message}`;
-      } finally { button.disabled = false; }
+        if (revision !== liveRevision || error.name === 'AbortError') return false;
+        status.textContent = `Не удалось загрузить последний сейв: ${error.message}. ${hasSave ? 'Показаны предыдущие данные.' : 'Повторите попытку.'}`;
+        return false;
+      }
+    }
+    document.querySelector('#latest-save').addEventListener('click', async () => {
+      await serverCapabilitiesReady;
+      const button = document.querySelector('#latest-save');
+      stopWatchingSaves();
+      const revision = ++liveRevision;
+      stopLiveRuntime();
+      fileInput.value = '';
+      button.disabled = true;
+      status.textContent = 'Searching for the latest Stellaris save…';
+      try {
+        if (usesClientGameFiles() && !clientFiles.hasGameAccess()) throw new Error('Сначала выберите папку Stellaris.');
+        if (usesClientSaveFiles() && !clientFiles.hasSaveAccess()) throw new Error('Сначала выберите папку сохранений или конкретной кампании.');
+        await fetchLatestSave(revision);
+      } catch (error) { status.textContent = error.message; }
+      finally { button.disabled = false; }
+    });
+    async function checkLatestSave() {
+      if (!watchingSaves) return;
+      const controller = new AbortController();
+      watchAbort = controller;
+      try {
+        if (usesClientSaveFiles()) {
+          const latest = await clientFiles.latestSave();
+          const file = latest.file;
+          const revision = latest.revision;
+          if (revision !== latestRevision && revision !== ignoredLatestRevision && watchingSaves) await loadSave(file, ++liveRevision, {watch: true, latestRevision: revision});
+          return;
+        }
+        const response = await fetch('latest-save', {method: 'HEAD', headers: {'X-Stellaris-Save': '1'}, signal: controller.signal});
+        if (!response.ok) throw new Error(`Проверка последнего сейва: HTTP ${response.status}`);
+        const revision = response.headers.get('X-Stellaris-Revision');
+        if (!revision) throw new Error('Сервер не поддерживает слежение за сейвами. Перезапустите start.cmd.');
+        if (revision !== latestRevision && revision !== ignoredLatestRevision && watchingSaves) await fetchLatestSave(++liveRevision, {watch: true, signal: controller.signal});
+      } catch (error) {
+        if (watchingSaves && error.name !== 'AbortError') status.textContent = `Слежение: ${error.message}. Повторю проверку.`;
+      } finally {
+        if (watchAbort === controller) watchAbort = undefined;
+        if (watchingSaves) watchTimer = setTimeout(checkLatestSave, 1500);
+      }
+    }
+    watchButton.addEventListener('click', async () => {
+      await serverCapabilitiesReady;
+      if (watchingSaves) { stopWatchingSaves(); status.textContent = 'Слежение за сейвами остановлено.'; return; }
+      if (usesClientGameFiles() && !clientFiles.hasGameAccess()) { status.textContent = 'Сначала выберите папку Stellaris.'; return; }
+      if (usesClientSaveFiles() && !clientFiles.canWatch) { status.textContent = clientFiles.mode === 'snapshot' ? 'На HTTP автообновление недоступно: выберите папку сейвов повторно и нажмите Latest Save.' : 'Сначала подключите папку сейвов.'; return; }
+      stopLiveRuntime();
+      watchingSaves = true;
+      watchButton.setAttribute('aria-pressed', 'true');
+      watchButton.textContent = 'Остановить слежение';
+      status.textContent = 'Слежу за новыми сейвами текущей партии…';
+      checkLatestSave();
     });
 
     document.querySelector('#clear').addEventListener('click', () => {
       resetView();
       TechPlanner?.clear();
       GalaxyMap.render({systems: [], neutral: [], markers: [], pois: [], hiddenCutholoids: [], countries: [], wanderlustCountries: [], relations: {}, wars: []});
+      hasSave = false; latestRevision = ''; ignoredLatestRevision = '';
       fileInput.value = '';
       empireList.innerHTML = '<div class="empty">Open a non-Ironman Stellaris save to inspect its empires.</div>';
       meta.textContent = 'Choose a Stellaris .sav file';
@@ -597,7 +793,7 @@
         wanderlustCountries: countries.filter(country => country.category === 'player' && country.isNomadic)
       };
     }
-    function render(countries, galaxy, info, fileName, gamestate) { renderEmpires(countries, info, fileName); GalaxyMap.render(galaxy); renderMapArtwork().catch(() => null); TechPlanner?.setSave({countries, gamestate}); }
+    function render(countries, galaxy, info, fileName, gamestate, options = {}) { renderEmpires(countries, info, fileName); if (options.preserve) GalaxyMap.updateSave(galaxy); else GalaxyMap.render(galaxy); renderMapArtwork().catch(() => null); TechPlanner?.setSave({countries, gamestate}, options); }
     function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, character => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' })[character]); }
   </script>
   <script src="live-map.js"></script>

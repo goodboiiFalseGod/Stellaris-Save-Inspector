@@ -840,12 +840,14 @@
     response.slice(0, techFiles.length).forEach(text => entries(text).filter(item => item.key?.startsWith('@') && Number.isFinite(Number(item.scalar))).forEach(item => scriptedVariables.set(item.key, Number(item.scalar))));
     definitions = parseDefinitions(response.slice(0, techFiles.length), response[techFiles.length]); return definitions;
   }
-  async function setSave(next) {
+  async function setSave(next, options = {}) {
     const revision = ++loadRevision;
+    const previousEmpire = options.preserve ? document.querySelector('#tech-empire').value : '';
     save = next; simulated.clear(); simulatedLevels.clear(); consumedOfferAreas.clear(); history = []; clearPlannerCaches();
     const select = document.querySelector('#tech-empire'), listElement = document.querySelector('#tech-target-list'), status = document.querySelector('#tech-status');
     select.innerHTML = next.countries.filter(c => c.isEmpire).map(c => `<option value="${escape(c.id)}">${escape(c.name)}</option>`).join('') || '<option value="">No regular empires</option>';
-    try { status.textContent = 'Reading installed 4.5 technology definitions…'; await loadDefinitions(); if (revision !== loadRevision) return; restorePlan(); listElement.innerHTML = [...definitions.byId.values()].sort((a, b) => displayName(a).localeCompare(displayName(b))).map(t => `<option value="${escape(t.id)}">${escape(displayName(t))}</option>`).join(''); render(); }
+    if (previousEmpire && next.countries.some(c => String(c.id) === previousEmpire)) select.value = previousEmpire;
+    try { status.textContent = 'Reading installed technology definitions…'; await loadDefinitions(); if (revision !== loadRevision) return; if (!options.preserve) restorePlan(); listElement.innerHTML = [...definitions.byId.values()].sort((a, b) => displayName(a).localeCompare(displayName(b))).map(t => `<option value="${escape(t.id)}">${escape(displayName(t))}</option>`).join(''); render(); }
     catch (error) { console.error('Technology planner initialization failed:', error); if (revision === loadRevision) status.textContent = `Could not read local technology definitions: ${error.message}`; }
   }
   function clear() {

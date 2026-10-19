@@ -2,6 +2,11 @@
 
 $Port = if ($env:STELLARIS_INSPECTOR_PORT) { [int]$env:STELLARIS_INSPECTOR_PORT } else { 8765 }
 if ($Port -lt 1024 -or $Port -gt 65535) { throw 'Порт должен быть в диапазоне 1024–65535.' }
+$PublicMode = $env:STELLARIS_INSPECTOR_PUBLIC -eq '1'
+$BindAddressText = if ($env:STELLARIS_INSPECTOR_BIND) { $env:STELLARIS_INSPECTOR_BIND } elseif ($PublicMode) { '0.0.0.0' } else { '127.0.0.1' }
+$BindAddress = $null
+if (-not [Net.IPAddress]::TryParse($BindAddressText, [ref]$BindAddress)) { throw 'STELLARIS_INSPECTOR_BIND должен содержать IP-адрес.' }
+if (-not $PublicMode -and -not [Net.IPAddress]::IsLoopback($BindAddress)) { throw 'Внешний адрес разрешён только при STELLARIS_INSPECTOR_PUBLIC=1.' }
 $allowedHosts = @("127.0.0.1:$Port", "localhost:$Port")
 $allowedOrigins = @("http://127.0.0.1:$Port", "http://localhost:$Port")
 
@@ -10,8 +15,20 @@ $appPrefix = $appRoot + [IO.Path]::DirectorySeparatorChar
 $settingsPath = Join-Path $appRoot 'settings.local.json'
 $gameRoot = $null
 $gamePrefix = $null
-$gameDirectories = @('assets', 'common', 'curated_save_games', 'flags', 'gfx', 'interface', 'localisation')
-$gameExtensions = @('.csv', '.dds', '.gfx', '.jpg', '.png', '.sav', '.txt', '.yml')
+$gameDirectories = if ($PublicMode) { @() } else { @('assets', 'common', 'curated_save_games', 'flags', 'gfx', 'interface', 'localisation') }
+$gameExtensions = if ($PublicMode) { @() } else { @('.csv', '.dds', '.gfx', '.jpg', '.png', '.sav', '.txt', '.yml') }
+$publicAppFiles = @('index.html', 'inspector.css', 'client-files.js', 'live-map.js', 'live-runtime.js', 'game-art.js', 'economy.js', 'save-format.js', 'technology.js', 'english.js', 'ship-types.js', 'combat-stats.js', 'fleets.js', 'fleet-art.js', 'presentation.js', 'map-layout.js', 'map-borders.js', 'map-threats.js', 'system-finder.js', 'nomad-routes.js', 'galaxy-map.js', 'map-interface.js', 'weapon-icons.json')
+$publicScriptHash = ''
+if ($PublicMode)
+{
+    $indexSource = [IO.File]::ReadAllText((Join-Path $appRoot 'index.html'), [Text.Encoding]::UTF8)
+    $inlineScript = [Text.RegularExpressions.Regex]::Match($indexSource, '<script>(.*?)</script>', [Text.RegularExpressions.RegexOptions]::Singleline)
+    if (-not $inlineScript.Success) { throw 'Не найден основной inline-скрипт index.html для Content-Security-Policy.' }
+    $sha = [Security.Cryptography.SHA256]::Create()
+    $normalizedScript = $inlineScript.Groups[1].Value.Replace("`r`n", "`n").Replace("`r", "`n")
+    try { $publicScriptHash = "'sha256-$([Convert]::ToBase64String($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($normalizedScript))))'" }
+    finally { $sha.Dispose() }
+}
 $mimeTypes = @{
     '.css' = 'text/css; charset=utf-8'
     '.dds' = 'application/octet-stream'
@@ -36,7 +53,7 @@ function Set-GameLocation
     $script:gamePrefix = $resolved + [IO.Path]::DirectorySeparatorChar
 }
 
-if ([IO.File]::Exists($settingsPath))
+if (-not $PublicMode -and [IO.File]::Exists($settingsPath))
 {
     try { Set-GameLocation (([IO.File]::ReadAllText($settingsPath, [Text.Encoding]::UTF8) | ConvertFrom-Json).gameLocation) }
     catch { Write-Warning "Настроенная папка игры недоступна: $($_.Exception.Message)" }
@@ -54,14 +71,22 @@ function Write-Response
         [hashtable]$AdditionalHeaders = @{}
     )
 
-    $extraHeaders = ''
-    foreach ($name in $AdditionalHeaders.Keys)
+    $responseHeaders = @{}
+    foreach ($name in $AdditionalHeaders.Keys) { $responseHeaders[$name] = $AdditionalHeaders[$name] }
+    if ($PublicMode)
     {
-        if ($name -notmatch '^[A-Za-z0-9-]+$' -or [string]$AdditionalHeaders[$name] -match "[`r`n]")
+        $responseHeaders['Content-Security-Policy'] = "default-src 'self'; script-src 'self' $publicScriptHash; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+        $responseHeaders['Referrer-Policy'] = 'no-referrer'
+        $responseHeaders['X-Content-Type-Options'] = 'nosniff'
+    }
+    $extraHeaders = ''
+    foreach ($name in $responseHeaders.Keys)
+    {
+        if ($name -notmatch '^[A-Za-z0-9-]+$' -or [string]$responseHeaders[$name] -match "[`r`n]")
         {
             throw "Недопустимый HTTP-заголовок: $name"
         }
-        $extraHeaders += "$name`: $($AdditionalHeaders[$name])`r`n"
+        $extraHeaders += "$name`: $($responseHeaders[$name])`r`n"
     }
     $headers = "HTTP/1.1 $StatusCode $StatusText`r`nContent-Type: $ContentType`r`nContent-Length: $($Body.Length)`r`nCache-Control: no-store`r`n${extraHeaders}Connection: close`r`n`r`n"
     $headerBytes = [Text.Encoding]::ASCII.GetBytes($headers)
@@ -70,6 +95,25 @@ function Write-Response
     {
         $Stream.Write($Body, 0, $Body.Length)
     }
+}
+
+function Wait-RequestTask
+{
+    param($Task, [datetime]$Deadline, [Net.Sockets.TcpClient]$Client)
+    $remaining = [int][Math]::Floor(($Deadline - [DateTime]::UtcNow).TotalMilliseconds)
+    if ($remaining -le 0)
+    {
+        $Client.Close()
+        throw [TimeoutException]::new('Превышено время чтения HTTP-запроса.')
+    }
+    $timeoutTask = [Threading.Tasks.Task]::Delay($remaining)
+    $completedTask = [Threading.Tasks.Task]::WhenAny([Threading.Tasks.Task[]]@($Task, $timeoutTask)).GetAwaiter().GetResult()
+    if (-not [Object]::ReferenceEquals($completedTask, $Task))
+    {
+        $Client.Close()
+        throw [TimeoutException]::new('Превышено время чтения HTTP-запроса.')
+    }
+    return $Task.GetAwaiter().GetResult()
 }
 
 function Read-StableStellarisSave
@@ -115,8 +159,9 @@ function Read-StableStellarisSave
     throw [IO.IOException]::new('Самое новое сохранение ещё записывается. Повторите попытку через несколько секунд.')
 }
 
-$listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $Port)
+$listener = [Net.Sockets.TcpListener]::new($BindAddress, $Port)
 $listener.Start()
+Write-Host "Stellaris Save Inspector: http://$BindAddressText`:$Port/SaveInspector/ ($(if ($PublicMode) { 'public' } else { 'local' }))"
 
 try
 {
@@ -125,14 +170,23 @@ try
         $client = $listener.AcceptTcpClient()
         try
         {
+            $client.ReceiveTimeout = 5000
+            $client.SendTimeout = 30000
             $stream = $null
             $stream = $client.GetStream()
             $reader = [IO.StreamReader]::new($stream, [Text.Encoding]::ASCII, $false, 1024, $true)
             try
             {
-                $requestLine = $reader.ReadLine()
+                $requestDeadline = [DateTime]::UtcNow.AddSeconds(10)
+                $requestLine = Wait-RequestTask ($reader.ReadLineAsync()) $requestDeadline $client
+                if (-not $requestLine -or $requestLine.Length -gt 4096) { throw 'Некорректная строка HTTP-запроса.' }
                 $requestHeaders = @{}
-                while ($headerLine = $reader.ReadLine()) {
+                $headerBytes = 0
+                $headerCount = 0
+                while ($headerLine = Wait-RequestTask ($reader.ReadLineAsync()) $requestDeadline $client) {
+                    $headerBytes += $headerLine.Length
+                    $headerCount++
+                    if ($headerBytes -gt 16384 -or $headerCount -gt 100) { throw 'HTTP-заголовки превышают допустимый размер.' }
                     if ($headerLine -match '^([^:]+):\s*(.*)$') { $requestHeaders[$Matches[1].ToLowerInvariant()] = $Matches[2] }
                 }
                 $requestBody = ''
@@ -141,7 +195,7 @@ try
                     $bodyLength = 0
                     if (-not [int]::TryParse($requestHeaders['content-length'], [ref]$bodyLength) -or $bodyLength -lt 1 -or $bodyLength -gt 4096) { throw 'Некорректный размер запроса.' }
                     $buffer = [char[]]::new($bodyLength)
-                    $readCount = $reader.ReadBlock($buffer, 0, $bodyLength)
+                    $readCount = Wait-RequestTask ($reader.ReadBlockAsync($buffer, 0, $bodyLength)) $requestDeadline $client
                     if ($readCount -ne $bodyLength) { throw 'Запрос настроек прочитан не полностью.' }
                     $requestBody = -join $buffer
                 }
@@ -159,6 +213,11 @@ try
 
             $method = $Matches[1]
             $requestPath = $Matches[2].Split('?')[0]
+            if ($PublicMode -and $requestPath -in @('/SaveInspector/game-location', '/SaveInspector/latest-save', '/SaveInspector/live/snapshot', '/SaveInspector/powershell-ready', '/SaveInspector/english-files.json', '/SaveInspector/ship-size-files.json', '/SaveInspector/combat-files.json', '/SaveInspector/technology-manifest'))
+            {
+                Write-Response $stream 404 'Not Found' 'text/plain; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes('Not found')) ($method -eq 'HEAD')
+                continue
+            }
             if ($requestPath -eq '/SaveInspector/game-location')
             {
                 $allowedHost = $requestHeaders['host'] -in $allowedHosts
@@ -199,18 +258,43 @@ try
             }
             if ($requestPath -eq '/SaveInspector/powershell-ready')
             {
+                if ($method -notin @('GET', 'HEAD'))
+                {
+                    Write-Response $stream 405 'Method Not Allowed' 'text/plain; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes('Method not allowed')) $false
+                    continue
+                }
                 Write-Response $stream 200 'OK' 'text/plain; charset=us-ascii' ([Text.Encoding]::ASCII.GetBytes('stellaris-inspector-powershell-v2')) ($method -eq 'HEAD')
+                continue
+            }
+            if ($requestPath -eq '/SaveInspector/public-ready')
+            {
+                if (-not $PublicMode -or $method -notin @('GET', 'HEAD'))
+                {
+                    Write-Response $stream 404 'Not Found' 'text/plain; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes('Not found')) ($method -eq 'HEAD')
+                    continue
+                }
+                Write-Response $stream 200 'OK' 'text/plain; charset=us-ascii' ([Text.Encoding]::ASCII.GetBytes('stellaris-inspector-public-v1')) ($method -eq 'HEAD')
                 continue
             }
             if ($requestPath -eq '/SaveInspector/server-info')
             {
-                # Только сведения о возможностях локального сервера, без путей и сохранений.
-                $body = '{"backend":"powershell","latestSave":true,"liveSnapshot":true}'
+                if ($method -notin @('GET', 'HEAD'))
+                {
+                    Write-Response $stream 405 'Method Not Allowed' 'application/json; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes('{"error":"Метод не поддерживается."}')) $false
+                    continue
+                }
+                # Только сведения о возможностях сервера, без путей и сохранений.
+                $body = @{backend = 'powershell'; public = $PublicMode; latestSave = -not $PublicMode; liveSnapshot = -not $PublicMode; gameLocationConfig = -not $PublicMode; gameFilesSource = $(if ($PublicMode) { 'client' } else { 'server' }); saveFilesSource = $(if ($PublicMode) { 'client' } else { 'server' })} | ConvertTo-Json -Compress
                 Write-Response $stream 200 'OK' 'application/json; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes($body)) ($method -eq 'HEAD')
                 continue
             }
             if ($requestPath -in @('/SaveInspector/english-files.json', '/SaveInspector/ship-size-files.json', '/SaveInspector/combat-files.json') -and $gameRoot)
             {
+                if ($method -notin @('GET', 'HEAD'))
+                {
+                    Write-Response $stream 405 'Method Not Allowed' 'application/json; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes('{"error":"Метод не поддерживается."}')) $false
+                    continue
+                }
                 $definitions = if ($requestPath -like '*english-files.json') { @{english = 'localisation\english'} } elseif ($requestPath -like '*ship-size-files.json') { @{ships = 'common\ship_sizes'} } else { @{components = 'common\component_templates'; sections = 'common\section_templates'; slots = 'common\component_slot_templates'; technologies = 'common\technology'; hulls = 'common\ship_sizes'; variables = 'common\scripted_variables'; defines = 'common\defines'} }
                 $manifest = @{}
                 foreach ($kind in $definitions.Keys)
@@ -225,6 +309,11 @@ try
             }
             if ($requestPath -eq '/SaveInspector/technology-manifest')
             {
+                if ($method -notin @('GET', 'HEAD'))
+                {
+                    Write-Response $stream 405 'Method Not Allowed' 'application/json; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes('{"error":"Метод не поддерживается."}')) $false
+                    continue
+                }
                 if (-not $gameRoot)
                 {
                     Write-Response $stream 503 'Service Unavailable' 'application/json; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes('{"error":"Выберите папку Stellaris в настройках."}')) ($method -eq 'HEAD')
@@ -242,7 +331,7 @@ try
                 # Доступ разрешён только интерфейсу на этом же loopback-origin.
                 $allowedHost = $requestHeaders['host'] -in $allowedHosts
                 $allowedOrigin = -not $requestHeaders['origin'] -or $requestHeaders['origin'] -in $allowedOrigins
-                if ($method -ne 'GET' -or -not $allowedHost -or -not $allowedOrigin -or $requestHeaders['x-stellaris-save'] -ne '1')
+                if ($method -notin @('GET', 'HEAD') -or -not $allowedHost -or -not $allowedOrigin -or $requestHeaders['x-stellaris-save'] -ne '1')
                 {
                     Write-Response $stream 403 'Forbidden' 'application/json; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes('{"error":"Недопустимый запрос сохранения."}')) $false
                     continue
@@ -275,9 +364,14 @@ try
                     }
                     $latestSave = $candidates | Sort-Object @{Expression = {$_.File.LastWriteTimeUtc}; Descending = $true}, @{Expression = {$_.RootPriority}; Ascending = $true}, @{Expression = {$_.File.FullName}; Descending = $true} | Select-Object -First 1 -ExpandProperty File
                     if (-not $latestSave) { throw [IO.FileNotFoundException]::new('Сохранения Stellaris не найдены в настроенной папке игры или папке документов.') }
+                    $saveBytes = if ($method -eq 'HEAD') { [byte[]]::new(0) } else { Read-StableStellarisSave $latestSave }
+                    $latestSave = Get-Item -LiteralPath $latestSave.FullName -ErrorAction Stop
                     $encodedName = [Uri]::EscapeDataString($latestSave.Name)
-                    $saveBytes = Read-StableStellarisSave $latestSave
-                    Write-Response $stream 200 'OK' 'application/zip' $saveBytes $false @{'X-Stellaris-Filename' = $encodedName; 'X-Stellaris-Modified' = $latestSave.LastWriteTimeUtc.ToString('o')}
+                    $revisionSource = "$($latestSave.FullName)|$($latestSave.Length)|$($latestSave.LastWriteTimeUtc.Ticks)"
+                    $sha = [Security.Cryptography.SHA256]::Create()
+                    try { $revision = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($revisionSource))).Replace('-', '') }
+                    finally { $sha.Dispose() }
+                    Write-Response $stream 200 'OK' 'application/zip' $saveBytes ($method -eq 'HEAD') @{'X-Stellaris-Filename' = $encodedName; 'X-Stellaris-Modified' = $latestSave.LastWriteTimeUtc.ToString('o'); 'X-Stellaris-Revision' = $revision}
                 }
                 catch
                 {
@@ -326,7 +420,18 @@ try
                 Write-Response $stream 405 'Method Not Allowed' 'text/plain; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes('Method not allowed')) $false
                 continue
             }
-            $decodedPath = [Uri]::UnescapeDataString($requestPath).Replace('\', '/')
+            try { $decodedPath = [Uri]::UnescapeDataString($requestPath).Replace('\', '/') }
+            catch
+            {
+                Write-Response $stream 400 'Bad Request' 'text/plain; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes('Bad request')) ($method -eq 'HEAD')
+                continue
+            }
+            $decodedSegments = $decodedPath.Split('/')
+            if ($decodedSegments | Where-Object { $_ -in @('.', '..') })
+            {
+                Write-Response $stream 403 'Forbidden' 'text/plain; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes('Forbidden')) ($method -eq 'HEAD')
+                continue
+            }
             $isApp = $decodedPath -eq '/' -or $decodedPath -eq '/SaveInspector' -or $decodedPath.StartsWith('/SaveInspector/', [StringComparison]::OrdinalIgnoreCase)
             if ($isApp)
             {
@@ -334,19 +439,14 @@ try
                 $prefix = $appPrefix
                 $relativePath = if ($decodedPath -in @('/', '/SaveInspector', '/SaveInspector/')) { 'index.html' } else { $decodedPath.Substring('/SaveInspector/'.Length) }
                 if ($relativePath.EndsWith('/')) { $relativePath += 'index.html' }
-                $extension = [IO.Path]::GetExtension($relativePath).ToLowerInvariant()
-                $allowed = $extension -in @('.html', '.css', '.js', '.json') -and $relativePath -ne 'settings.local.json'
             }
             else
             {
-                $root = $gameRoot
-                $prefix = $gamePrefix
+                $root = if ($PublicMode) { $null } else { $gameRoot }
+                $prefix = if ($PublicMode) { $null } else { $gamePrefix }
                 $relativePath = $decodedPath.TrimStart('/')
-                $segments = $relativePath.Split('/')
-                $extension = [IO.Path]::GetExtension($relativePath).ToLowerInvariant()
-                $allowed = $root -and $segments[0] -in $gameDirectories -and $extension -in $gameExtensions
             }
-            if (-not $allowed)
+            if (-not $root)
             {
                 Write-Response $stream 403 'Forbidden' 'text/plain; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes('Forbidden')) ($method -eq 'HEAD')
                 continue
@@ -357,10 +457,26 @@ try
                 Write-Response $stream 403 'Forbidden' 'text/plain; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes('Forbidden')) ($method -eq 'HEAD')
                 continue
             }
+            $canonicalRelativePath = $filePath.Substring($prefix.Length).Replace('\', '/')
+            $extension = [IO.Path]::GetExtension($canonicalRelativePath).ToLowerInvariant()
+            if ($isApp)
+            {
+                $allowed = if ($PublicMode) { $canonicalRelativePath -in $publicAppFiles } else { $extension -in @('.html', '.css', '.js', '.json') -and $canonicalRelativePath -ne 'settings.local.json' }
+            }
+            else
+            {
+                $segments = $canonicalRelativePath.Split('/')
+                $allowed = $segments[0] -in $gameDirectories -and $extension -in $gameExtensions
+            }
+            if (-not $allowed)
+            {
+                Write-Response $stream 403 'Forbidden' 'text/plain; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes('Forbidden')) ($method -eq 'HEAD')
+                continue
+            }
 
             $itemPath = $root
             $redirected = $false
-            foreach ($segment in $relativePath.Split('/'))
+            foreach ($segment in $canonicalRelativePath.Split('/'))
             {
                 $itemPath = Join-Path $itemPath $segment
                 if ([IO.File]::Exists($itemPath) -or [IO.Directory]::Exists($itemPath))
@@ -377,6 +493,13 @@ try
             if (-not [IO.File]::Exists($filePath))
             {
                 Write-Response $stream 404 'Not Found' 'text/plain; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes('Not found')) ($method -eq 'HEAD')
+                continue
+            }
+
+            $fileInfo = Get-Item -LiteralPath $filePath -Force
+            if ($fileInfo.Length -gt 64MB)
+            {
+                Write-Response $stream 413 'Payload Too Large' 'text/plain; charset=utf-8' ([Text.Encoding]::UTF8.GetBytes('File is too large')) ($method -eq 'HEAD')
                 continue
             }
 

@@ -6,6 +6,14 @@ It currently reads standard ZIP-based, text `gamestate` saves and shows regular 
 
 The background and other game graphics are loaded from the selected installation, not copied into this repository. Restart the page after changing the game path (the settings button does this automatically).
 
+## External test hosting
+
+`launch-public-2234.cmd` starts a separate public mode on `0.0.0.0:2234`; the ordinary launcher remains local on `127.0.0.1:8765`. Public mode unconditionally blocks the host's game path, game assets, manifests, saves, Latest Save endpoint, and live memory capture. Each visitor selects their own **Папка Stellaris** for definitions, localization, and artwork. **Open save** reads one selected save locally; **Папка сейвов** enables client-side **Latest Save**. Files are processed in the visitor's browser and are not uploaded to the host.
+
+The launcher does not configure the Windows Firewall or router. Allow inbound TCP 2234 and forward the router's external TCP 2234 to this computer's LAN address and TCP 2234. Test from a different network, such as a phone with Wi-Fi disabled. Carrier-grade NAT can prevent incoming connections even when the router rule is correct.
+
+This mode uses plain HTTP and has no user authentication. Use it only for a short test with people you trust. Over plain HTTP, Chromium exposes folders as a one-session snapshot: visitors must choose them again after reloading, and automatic save watching is unavailable. With HTTPS, the browser can retain directory handles and enable save watching after permission is granted. For persistent access, put an HTTPS reverse proxy with authentication in front of the local server. Public responses use an app-only allowlist and a restrictive Content Security Policy; the host never serves its Stellaris installation to visitors.
+
 ## Interface and filters
 
 Cards use a compact summary and separate wrapping rows for civics and species traits. Resource amounts have the original game icons and one decimal place. Flags combine the saved background and colors with the original emblem, mask, and frame using the game's 64-pixel flag layout.

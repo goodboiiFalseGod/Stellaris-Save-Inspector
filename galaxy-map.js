@@ -16,12 +16,29 @@ const GalaxyMap = (() => {
   const wanderlustSelect = document.querySelector('#map-wanderlust-perspective');
   const routeSelect = document.querySelector('#route-empire'), routeGoal = document.querySelector('#route-goal'), routeLimit = document.querySelector('#route-limit'), routeSummary = document.querySelector('#route-summary'), routeBuild = document.querySelector('#route-build');
   const routeItinerary = document.querySelector('#route-itinerary');
-  let plannedRoute, routeRevision = 0;
-  let enclaveRoutes = [], enclaveRevision = 0;
+  let plannedRoute, routeRevision = 0, activeRouteKind = '';
+  let enclaveRoutes = [], enclaveRevision = 0, enclaveSearchRequested = false, selectedEnclaveKey = '';
   let model = {systems: [], neutral: [], markers: [], pois: [], hiddenCutholoids: [], relations: {}, wars: [], countries: [], wanderlustCountries: []}, transform = {scale: 1, x: 0, y: 0}, fitScale = 1, selected, hoveredSystem, dragging, palette = {}, cells = [], hitTargets = [];
   const flags = new Map(), mapImages = new Map(), byId = new Map(), countriesById = new Map();
-  let initialFitPending = true, pendingRouteFocus;
-  fetch('../flags/colors.txt').then(response => response.ok ? response.text() : '').then(text => { if (text) palette = GameArt.parsePalette(text); draw(); }).catch(() => null);
+  let initialFitPending = true, pendingRouteFocus, palettePromise;
+  function ensurePalette() {
+    if (Object.keys(palette).length) return Promise.resolve(true);
+    if (!palettePromise) {
+      palettePromise = fetch('../flags/colors.txt').then(response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.text();
+      }).then(text => {
+        palette = GameArt.parsePalette(text);
+        draw();
+        return true;
+      }).catch(error => {
+        palettePromise = undefined;
+        console.warn('Map palette unavailable; it will be retried on the next save:', error);
+        return false;
+      });
+    }
+    return palettePromise;
+  }
 
   const category = marker => marker.mapCategory || marker.country.category;
   function controlActive(input) {
@@ -668,6 +685,7 @@ const GalaxyMap = (() => {
     wanderlustSelect.disabled = !countries.length;
   }
   function render(next) {
+    ensurePalette();
     model = next;
     document.body.classList.toggle('live-map-active', Boolean(model.live));
     syncLiveControls();
@@ -687,6 +705,8 @@ const GalaxyMap = (() => {
     rebuildCells();
     enclaveRoutes = [];
     enclaveRevision++;
+    enclaveSearchRequested = false;
+    document.querySelector('#enclave-find').disabled = false;
     document.querySelector('#enclave-results').innerHTML = '';
     document.querySelector('#enclave-empire').innerHTML = '<option value="">Pick empire</option>' + (model.countries || []).map(country => `<option value="${escapeHtml(country.id)}">${escapeHtml(country.name)}</option>`).join('');
     if (typeof SystemFinder !== 'undefined') SystemFinder.render(model);
@@ -707,14 +727,16 @@ const GalaxyMap = (() => {
   });
   povSelect.addEventListener('change', () => { povToggle.checked = Boolean(povSelect.value); if (selected?.system) detail.innerHTML = systemDetailHtml(selected.system); draw(); });
   function clearRoute() {
-    plannedRoute = undefined; pendingRouteFocus = false; routeRevision++;
+    plannedRoute = undefined; pendingRouteFocus = false; routeRevision++; activeRouteKind = ''; selectedEnclaveKey = '';
+    routeBuild.disabled = false;
     routeItinerary.innerHTML = ''; routeItinerary.hidden = true;
     routeSummary.textContent = routeGoal.value === 'categories4' ? 'Capital arkship → 4 total completed categories.' : 'Capital arkship → unvisited sites.';
     routeSummary.title = 'Hyperlanes only. Approximate travel cost, not days; heuristic, not a guaranteed global optimum. Closed borders are ignored for nomads.';
   }
   for (const id of ['#route-empire', '#route-avoid-major', '#route-avoid-minor', '#route-limit', '#route-budget', '#route-goal']) document.querySelector(id).addEventListener('change', () => {routeLimit.disabled = routeGoal.value === 'categories4'; clearRoute(); draw();});
-  routeBuild.addEventListener('click', async () => {
+  async function buildNomadRoute(keepViewport = false) {
     const countryId = routeSelect.value, revision = ++routeRevision;
+    activeRouteKind = countryId ? 'nomad' : '';
     plannedRoute = undefined; pendingRouteFocus = false; routeItinerary.innerHTML = ''; routeItinerary.hidden = true; draw();
     if (!countryId) {routeSummary.textContent = 'Select a nomadic empire first.'; return;}
     routeBuild.disabled = true; routeSummary.textContent = 'Calculating route…';
@@ -722,15 +744,17 @@ const GalaxyMap = (() => {
       await NomadRoutes.load();
       if (revision !== routeRevision) return;
       plannedRoute = NomadRoutes.plan(model, countryId, {objective: routeGoal.value, avoidMajorThreats: checked('#route-avoid-major'), avoidMinorThreats: checked('#route-avoid-minor'), limit: routeLimit.value, budget: document.querySelector('#route-budget').value});
-      povSelect.value = countryId; povToggle.checked = true; povSelect.disabled = false;
-      if ((model.wanderlustCountries || []).some(country => country.id === countryId)) wanderlustSelect.value = countryId;
-      focusRouteStart();
+      if (!keepViewport) {
+        povSelect.value = countryId; povToggle.checked = true; povSelect.disabled = false;
+        if ((model.wanderlustCountries || []).some(country => country.id === countryId)) wanderlustSelect.value = countryId;
+      }
+      if (!keepViewport) focusRouteStart();
       const categoryGoal = plannedRoute.categoryGoal;
       const warnings = [plannedRoute.startDanger ? `Capital is in a ${plannedRoute.startThreat} threat system.` : '', !Number.isFinite(plannedRoute.capitalPower) || plannedRoute.capitalPower <= 0 ? 'Capital arkship power is unknown; unknown threats are treated as major.' : '', categoryGoal?.before >= categoryGoal?.target ? 'The 4-category milestone is already reached.' : '', categoryGoal && !categoryGoal.reached ? `The heuristic route reaches only ${categoryGoal.after}/${categoryGoal.target} categories with these limits.` : '', !categoryGoal && !plannedRoute.stops.length ? 'No reachable sites within budget.' : ''].filter(Boolean);
       routeSummary.innerHTML = categoryGoal ? `<strong>${categoryGoal.after} completed · target ${categoryGoal.target}</strong> · ${plannedRoute.stops.length} sites · ${plannedRoute.path.length - 1} jumps · ~${plannedRoute.cost.toFixed(1)} cost${warnings.length ? `<span class="route-warning">${warnings.join(' ')}</span>` : ''}` : `<strong>${plannedRoute.stops.length}/${plannedRoute.available} sites</strong> · ${plannedRoute.path.length - 1} jumps · ~${plannedRoute.cost.toFixed(1)} cost${warnings.length ? `<span class="route-warning">${warnings.join(' ')}</span>` : ''}`;
       const speedNotes = plannedRoute.slowSystems.map(id => `${byId.get(id).name}: −${Math.round(NomadRoutes.reduction(byId.get(id)) * 100)}% speed`).join('; ');
       const categoryNotes = categoryGoal ? `Category progress: ${plannedRoute.categoryProgress.map(category => `${category.label} ${Math.min(category.plannedSeen, category.required)}/${category.required}${category.completedAfter ? ' ✓' : ''}`).join('; ')}. ` : '';
-      routeSummary.title = `${plannedRoute.start.name}${Number.isFinite(plannedRoute.capitalPower) && plannedRoute.capitalPower > 0 ? ` (${Math.round(plannedRoute.capitalPower).toLocaleString('en-US')} power)` : ' (power unknown)'}. ${plannedRoute.unreachable} unreachable; ${plannedRoute.slowSystems.length} slowed; ${plannedRoute.minorThreatSystems.length} minor, ${plannedRoute.majorThreatSystems.length} major and ${plannedRoute.unknownThreatSystems.length} unknown threat systems on route. Minor is ≤${plannedRoute.threatMultiplier}× capital arkship power; major is higher; unknown follows the major-threat setting. ${categoryNotes}${speedNotes ? `Speed penalties: ${speedNotes}. ` : ''}Cost is approximate, not days. Hyperlanes only; heuristic, not a guaranteed global optimum. Closed borders are ignored. Recalculate after loading a new save.`;
+      routeSummary.title = `${plannedRoute.start.name}${Number.isFinite(plannedRoute.capitalPower) && plannedRoute.capitalPower > 0 ? ` (${Math.round(plannedRoute.capitalPower).toLocaleString('en-US')} power)` : ' (power unknown)'}. ${plannedRoute.unreachable} unreachable; ${plannedRoute.slowSystems.length} slowed; ${plannedRoute.minorThreatSystems.length} minor, ${plannedRoute.majorThreatSystems.length} major and ${plannedRoute.unknownThreatSystems.length} unknown threat systems on route. Minor is ≤${plannedRoute.threatMultiplier}× capital arkship power; major is higher; unknown follows the major-threat setting. ${categoryNotes}${speedNotes ? `Speed penalties: ${speedNotes}. ` : ''}Cost is approximate, not days. Hyperlanes only; heuristic, not a guaranteed global optimum. Closed borders are ignored. The route updates with each new save.`;
       const unity = NomadRoutes.unityReward(countriesById.get(countryId), plannedRoute.stops.length);
       routeSummary.innerHTML += ` · ${unity.total === null ? 'Unity —' : `~${Math.round(unity.total).toLocaleString('en-US')} Unity`}`;
       if (unity.total === null) routeSummary.innerHTML += `<span class="route-warning">${escapeHtml(unity.reason)}</span>`;
@@ -747,16 +771,28 @@ const GalaxyMap = (() => {
       routeItinerary.hidden = false;
       draw();
     } catch (error) {if (revision === routeRevision) routeSummary.textContent = error.message; console.warn('Nomadic route calculation failed:', error);}
-    finally {routeBuild.disabled = false;}
-  });
+    finally {if (revision === routeRevision) routeBuild.disabled = false;}
+  }
+  routeBuild.addEventListener('click', () => buildNomadRoute());
   document.querySelector('#route-clear').addEventListener('click', () => {clearRoute(); draw();});
   document.querySelector('#enclave-clear').addEventListener('click', () => {clearRoute(); draw();});
   for (const id of ['#enclave-empire', '#enclave-avoid']) document.querySelector(id).addEventListener('change', () => {
-    enclaveRevision++; enclaveRoutes = []; document.querySelector('#enclave-results').innerHTML = '';
+    enclaveRevision++; enclaveRoutes = []; enclaveSearchRequested = false; document.querySelector('#enclave-results').innerHTML = '';
+    document.querySelector('#enclave-find').disabled = false;
+    if (activeRouteKind === 'enclave') {clearRoute(); draw();}
   });
-  document.querySelector('#enclave-find').addEventListener('click', async () => {
+  function selectEnclaveRoute(route, keepViewport = false) {
+    clearRoute(); plannedRoute = route; activeRouteKind = 'enclave'; selectedEnclaveKey = route.type;
+    routeSummary.textContent = `${route.start.name} → ${route.country.name} (${route.system.name}) · ${route.path.length - 1} jumps · ~${route.cost.toFixed(1)} cost`;
+    routeItinerary.innerHTML = `<div class="route-stop-column">${route.path.map(id => `<button type="button" data-route-system="${escapeHtml(id)}">${escapeHtml(byId.get(id).name)}</button>`).join('<span class="route-stop-arrow">↓</span>')}</div>`;
+    routeItinerary.hidden = false;
+    if (!keepViewport) focusRouteStart();
+    draw();
+  }
+  async function findEnclaveRoutes(selectedType = '') {
     const countryId = document.querySelector('#enclave-empire').value, button = document.querySelector('#enclave-find'), results = document.querySelector('#enclave-results');
     if (!countryId) {results.textContent = 'Pick an empire first.'; return;}
+    enclaveSearchRequested = true;
     const revision = routeRevision, enclaveRequest = ++enclaveRevision;
     button.disabled = true; results.textContent = 'Calculating…';
     try {
@@ -764,17 +800,19 @@ const GalaxyMap = (() => {
       if (revision !== routeRevision || enclaveRequest !== enclaveRevision) return;
       enclaveRoutes = NomadRoutes.findEnclaves(model, countryId, {avoidThreats: checked('#enclave-avoid')});
       results.innerHTML = enclaveRoutes.map((route, index) => `<button type="button" data-enclave-route="${index}" ${route.reachable ? '' : 'disabled'}><strong>${escapeHtml(route.country.government || route.country.name)}</strong><span>${route.reachable ? `${escapeHtml(route.system.name)} · ${route.path.length - 1} jumps · ~${route.cost.toFixed(1)} cost` : 'No reachable branch'}</span></button>`).join('') || 'No saved enclave branches found.';
+      if (selectedType) {
+        const route = enclaveRoutes.find(route => route.type === selectedType && route.reachable);
+        if (route) selectEnclaveRoute(route, true);
+        else {activeRouteKind = ''; selectedEnclaveKey = ''; routeSummary.textContent = 'Previously selected enclave branch is no longer reachable.';}
+      }
     } catch (error) {if (revision === routeRevision && enclaveRequest === enclaveRevision) results.textContent = error.message; console.warn('Ошибка поиска анклавов:', error);}
-    finally {button.disabled = false;}
-  });
+    finally {if (enclaveRequest === enclaveRevision) button.disabled = false;}
+  }
+  document.querySelector('#enclave-find').addEventListener('click', () => findEnclaveRoutes(activeRouteKind === 'enclave' ? selectedEnclaveKey : ''));
   document.querySelector('#enclave-results').addEventListener('click', event => {
     const button = event.target.closest('[data-enclave-route]'), route = enclaveRoutes[button?.dataset.enclaveRoute];
     if (!route?.reachable) return;
-    clearRoute(); plannedRoute = route;
-    routeSummary.textContent = `${route.start.name} → ${route.country.name} (${route.system.name}) · ${route.path.length - 1} jumps · ~${route.cost.toFixed(1)} cost`;
-    routeItinerary.innerHTML = `<div class="route-stop-column">${route.path.map(id => `<button type="button" data-route-system="${escapeHtml(id)}">${escapeHtml(byId.get(id).name)}</button>`).join('<span class="route-stop-arrow">↓</span>')}</div>`;
-    routeItinerary.hidden = false;
-    focusRouteStart();
+    selectEnclaveRoute(route);
   });
   const selectRouteStop = event => {
     const button = event.target.closest('[data-route-system]'), system = byId.get(button?.dataset.routeSystem);
@@ -885,6 +923,64 @@ const GalaxyMap = (() => {
     } finally {exportControls = undefined; button.disabled = false; button.textContent = 'Export PNG';}
   }
   document.querySelector('#map-export').addEventListener('click', exportImage);
+  function sameGalaxy(next) {
+    if (model.live || !model.systems.length || !next?.systems?.length) return false;
+    const oldPositions = new Map(model.systems.map(system => [String(system.id), system]));
+    let matching = 0;
+    for (const system of next.systems) {
+      const old = oldPositions.get(String(system.id));
+      if (old && Math.abs(old.x - system.x) < 0.01 && Math.abs(old.y - system.y) < 0.01) matching++;
+    }
+    const smaller = Math.min(model.systems.length, next.systems.length);
+    return matching >= Math.min(30, smaller) && matching / smaller >= 0.9;
+  }
+  function updateSave(next) {
+    ensurePalette();
+    if (!sameGalaxy(next)) { render(next); return; }
+    const routeCountry = routeSelect.value;
+    const enclaveSelect = document.querySelector('#enclave-empire');
+    const enclaveCountry = enclaveSelect.value;
+    const routeKind = activeRouteKind;
+    const enclaveType = selectedEnclaveKey;
+    const hadEnclaveSearch = enclaveSearchRequested;
+    const selectedId = selected?.system?.id;
+    const hoveredId = hoveredSystem?.id;
+    const oldCountries = new Map(countriesById);
+    clearRoute();
+    enclaveRoutes = []; enclaveRevision++;
+    document.querySelector('#enclave-find').disabled = false;
+    document.querySelector('#enclave-results').innerHTML = '';
+    model = next;
+    document.body.classList.remove('live-map-active');
+    syncLiveControls();
+    byId.clear(); countriesById.clear();
+    for (const system of model.systems) byId.set(system.id, system);
+    for (const country of model.countries || []) countriesById.set(country.id, country);
+    for (const marker of model.neutral || []) if (marker.country) countriesById.set(marker.country.id, marker.country);
+    for (const country of model.countries || []) {
+      if (JSON.stringify(oldCountries.get(country.id)?.flag) !== JSON.stringify(country.flag)) {
+        flags.delete(country.id); flags.delete(`emblem:${country.id}`);
+      }
+    }
+    const nomads = (model.countries || []).filter(country => country.isNomadic);
+    routeSelect.innerHTML = `<option value="">Pick nomad</option>${nomads.map(country => `<option value="${escapeHtml(country.id)}">${escapeHtml(country.name)}</option>`).join('')}`;
+    routeSelect.value = nomads.some(country => String(country.id) === routeCountry) ? routeCountry : '';
+    routeSelect.disabled = !nomads.length;
+    enclaveSelect.innerHTML = '<option value="">Pick empire</option>' + (model.countries || []).map(country => `<option value="${escapeHtml(country.id)}">${escapeHtml(country.name)}</option>`).join('');
+    enclaveSelect.value = (model.countries || []).some(country => String(country.id) === enclaveCountry) ? enclaveCountry : '';
+    if (routeKind === 'enclave' && enclaveSelect.value && enclaveType) {activeRouteKind = 'enclave'; selectedEnclaveKey = enclaveType;}
+    fillPerspective(model.countries || []);
+    fillWanderlustPerspective(model.wanderlustCountries || []);
+    selected = selectedId === undefined ? undefined : {kind: 'system', system: byId.get(selectedId)};
+    if (!selected?.system) { selected = undefined; systemPanel.hidden = true; }
+    else detail.innerHTML = systemDetailHtml(selected.system);
+    hoveredSystem = hoveredId === undefined ? undefined : byId.get(hoveredId);
+    rebuildCells();
+    if (typeof SystemFinder !== 'undefined') SystemFinder.render(model);
+    draw();
+    if (routeKind === 'nomad' && routeSelect.value) buildNomadRoute(true);
+    if (hadEnclaveSearch && enclaveSelect.value) findEnclaveRoutes(routeKind === 'enclave' ? enclaveType : '');
+  }
   function updateLive(next) {
     if (!next.live) throw new Error('Ожидалась модель из памяти игры.');
     if (!model.live || next.sourceIdentity !== model.sourceIdentity || next.systems.length !== model.systems.length || next.systems.some(system => !byId.has(system.id))) {
@@ -911,5 +1007,5 @@ const GalaxyMap = (() => {
     rebuildCells();
     draw();
   }
-  return {render, updateLive, resize, closeSystemPanel, exportImage};
+  return {render, updateLive, updateSave, sameGalaxy, resize, closeSystemPanel, exportImage};
 })();

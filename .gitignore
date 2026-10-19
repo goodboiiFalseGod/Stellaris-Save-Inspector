@@ -1,3 +1,4 @@
 settings.local.json
 settings.local.json.tmp
 settings.local.json.backup
+.codex-backups/

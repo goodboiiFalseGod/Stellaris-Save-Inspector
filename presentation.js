@@ -33,10 +33,22 @@ function filteredCountries(countries, categories, query, sort) {
 
 function refreshCards() {
   const revision = ++viewRevision;
+  const openDetails = new Set([...empireList.querySelectorAll('details[open]')].map(node => {
+    const countryId = node.closest('.empire')?.dataset.countryId;
+    const fleetId = node.closest('[data-fleet-id]')?.dataset.fleetId || '';
+    return `${countryId}|${fleetId}|${node.className}`;
+  }));
+  const previousScroll = empireList.scrollTop;
   const categories = [...document.querySelectorAll('.category-filters input:checked')].map(input => input.value);
   const countries = filteredCountries(displayedCountries, categories, document.querySelector('#search').value, document.querySelector('#sort').value);
   document.querySelector('#count').textContent = `${countries.length} / ${displayedCountries.length} countries`;
   empireList.innerHTML = countries.length ? countries.map(cardHtml).join('') : '<div class="empty">No countries match these filters.</div>';
+  for (const node of empireList.querySelectorAll('details')) {
+    const countryId = node.closest('.empire')?.dataset.countryId;
+    const fleetId = node.closest('[data-fleet-id]')?.dataset.fleetId || '';
+    if (openDetails.has(`${countryId}|${fleetId}|${node.className}`)) node.open = true;
+  }
+  empireList.scrollTop = previousScroll;
   renderArtwork(countries, revision).catch(error => {
     console.error('Ошибка отображения игровых изображений:', error);
     if (revision === viewRevision) status.textContent = `Artwork error: ${error.message}`;

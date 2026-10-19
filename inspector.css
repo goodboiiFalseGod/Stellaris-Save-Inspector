@@ -20,6 +20,7 @@ h1 { margin: 4px 0 0; font-weight: 400; font-size: 27px; color: #f0f3e7; }
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 10px 0; }
 .file-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex-shrink: 0; }
 .file-actions button { background: transparent; color: #95b3a6; }
+.client-folder-input { display: none; }
 .game-location-settings { position: relative; color: #a5c9b0; }
 .game-location-settings summary { cursor: pointer; border: 1px solid #427b6e; padding: 8px 12px; list-style: none; }
 .game-location-settings summary::-webkit-details-marker { display: none; }
