@@ -1,0 +1,43 @@
+const assert = require('node:assert/strict');
+const borders = require('./map-borders.js');
+const palette = {null: [0, 0, 0], map: {null: [0, 0, 0], primary: [1, 2, 3], secondary: [4, 5, 6], border: [7, 8, 9], fill: [10, 11, 12], obsoleteBorder: [13, 14, 15], obsoleteFill: [16, 17, 18], blue: [46, 63, 153], black: [27, 27, 27]}};
+const flag = {colors: ['primary', 'secondary', 'border', 'fill', 'obsoleteBorder', 'obsoleteFill']};
+assert.deepEqual(borders.paint({flag}, palette), {border: [7, 8, 9], fill: [10, 11, 12]});
+assert.deepEqual(borders.paint({flag: {...flag, useMapColor: false}}, palette), {border: [1, 2, 3], fill: [4, 5, 6]});
+assert.deepEqual(borders.paint({flag: {colors: ['primary', 'secondary', 'null', 'null', 'null', 'null']}}, palette), {border: [1, 2, 3], fill: [4, 5, 6]});
+assert.deepEqual(borders.paint({flag: {colors: ['primary', 'secondary', 'border', 'null', 'null', 'null']}}, palette), {border: [7, 8, 9], fill: [4, 5, 6]});
+assert.deepEqual(borders.paint({flag: {colors: ['blue', 'black', 'null', 'null', 'null', 'null']}}, palette), {border: [46, 63, 153], fill: [27, 27, 27]});
+assert.deepEqual(borders.build([]), []);
+const site = (id, x, y, ownerId = 'a') => ({id, x, y, ownerId});
+const adjacent = borders.build([site('1', 0, 0), site('2', 20, 0)]);
+assert.equal(adjacent.length, 1);
+assert.equal(adjacent[0].loops.length, 1);
+const separate = borders.build([site('1', 0, 0), site('2', 1000, 0)]);
+assert.equal(separate[0].loops.length, 2);
+assert.ok(separate[0].label && separate[0].label.clearance > 0);
+for (const loop of separate[0].loops) {
+  assert.ok(loop.every(point => Number.isFinite(point.x) && Number.isFinite(point.y)));
+  assert.ok(loop.every(point => Math.min(Math.hypot(point.x, point.y), Math.hypot(point.x - 1000, point.y)) < 65));
+}
+const neighbors = borders.build([site('1', 0, 0), site('2', 20, 0, 'b')]);
+const linked = [{...site('1', 0, 0), links: ['2']}, site('2', 300, 0)];
+const connected = borders.build(linked);
+assert.equal(connected[0].loops.length, 1);
+const contains = (loop, x, y) => loop.reduce((inside, a, index) => {
+  const b = loop[(index + 1) % loop.length];
+  return (a.y > y) !== (b.y > y) && x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x ? !inside : inside;
+}, false);
+assert.ok(contains(connected[0].loops[0], 150, 0));
+assert.ok(connected[0].label.clearance > 0);
+assert.ok(contains(connected[0].loops[0], connected[0].label.x, connected[0].label.y));
+assert.equal(borders.build([{...site('2', 300, 0), links: ['1']}, site('1', 0, 0)])[0].loops.length, 1);
+const blocked = borders.build([...linked, site('3', 150, 0, '')]);
+assert.equal(blocked[0].loops.length, 2);
+const foreign = borders.build([{...site('1', 0, 0), links: ['2']}, site('2', 300, 0, 'b')]);
+assert.ok(foreign.every(territory => territory.loops.every(loop => loop.every(point => Math.min(Math.hypot(point.x, point.y), Math.hypot(point.x - 300, point.y)) < 65))));
+assert.ok(connected[0].loops.every(loop => loop.length >= 4 && loop.every(point => Number.isFinite(point.x) && Number.isFinite(point.y))));
+assert.deepEqual(neighbors.map(territory => territory.ownerId).sort(), ['a', 'b']);
+const unclaimed = borders.build([site('1', 0, 0), site('2', 20, 0, '')]);
+assert.equal(unclaimed.length, 1);
+assert.ok(unclaimed[0].loops.every(loop => loop.every(point => point.x <= 10.1)));
+console.log('PASS: map swatch priorities, bounded territories, merged cells, separate pockets, unclaimed systems, finite contours');

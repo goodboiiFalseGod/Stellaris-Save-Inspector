@@ -1,0 +1,13 @@
+'use strict';
+const assert = require('node:assert/strict');
+const {reference} = require('./save-reference.cjs');
+const text = 'country={0={type=default fleets_manager={owned_fleets={{fleet=7}}}}} fleet={7={name={key="Fleet"} ships={12 13} movement_manager={coordinate={origin=5}}}} ships={12={fleet=7}} starbase_mgr={starbases={1={station=12}}} galactic_object={5={star_class="sc_g" starbases={1}} 6={star_class="sc_m" starbases={4294967295}}}';
+const data = reference(text);
+assert.equal(data.fleets[0].ownerId, '0');
+assert.equal(data.fleets[0].systemId, '5');
+assert.deepEqual(data.fleets[0].shipIds, ['12', '13']);
+assert.equal(data.systems[0].baseOwners[0].countryId, '0');
+assert.deepEqual(data.systems[1].starbaseIds, []);
+assert.equal(data.systems[0].ownerId, undefined);
+assert.throws(() => reference('country={0={fleets_manager={owned_fleets={fleet=7}}} 1={fleets_manager={owned_fleets={fleet=7}}}}'), /нескольким/);
+console.log('PASS: save reference ownership chains, INVALID, no territory assumption, conflicting fleet ownership');

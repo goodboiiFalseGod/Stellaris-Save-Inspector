@@ -1,0 +1,819 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stellaris Save Inspector</title>
+  <link rel="stylesheet" href="inspector.css?v=enclave-routes-18">
+</head>
+<body>
+  <main class="shell">
+    <header><div><div class="eyebrow">STELLARIS · SAVE INSPECTOR</div><h1>Galactic empires</h1></div><div class="save-meta" id="meta">Choose a Stellaris .sav file</div></header>
+    <div class="top-menu-handle"><button id="map-top-toggle" type="button" aria-expanded="true">Hide top menu</button></div>
+    <div class="toolbar">
+      <div class="file-actions"><label class="open-save">Open save<input id="file" type="file" accept=".sav,.zip"></label><button id="client-game-folder" type="button" hidden>Папка Stellaris</button><input id="client-game-files" class="client-folder-input" type="file" webkitdirectory multiple><button id="client-save-folder" type="button" hidden>Папка сейвов</button><input id="client-save-files" class="client-folder-input" type="file" webkitdirectory multiple><button id="latest-save" type="button">Latest save</button><button id="watch-saves" type="button" aria-pressed="false" title="Автоматически загружать новые сохранения этой партии">Следить за сейвами</button><button id="clear" type="button">Clear</button><button id="tutorial" type="button">Try tutorial</button><button id="live-map" type="button">Карта из памяти</button><details class="game-location-settings" id="game-location-settings"><summary>Папка игры</summary><form id="game-location-form"><label for="game-location-input">Путь к Stellaris</label><input id="game-location-input" type="text" placeholder="E:\SteamLibrary\steamapps\common\Stellaris" autocomplete="off" spellcheck="false" required><button type="submit">Сохранить</button><small id="game-location-status">Укажите папку с common, gfx и localisation.</small></form></details></div>
+      <div id="status" role="status">All parsing is local — no save data is uploaded.</div>
+    </div>
+    <div class="navigation-controls">
+      <nav class="page-tabs" aria-label="Inspector pages"><button id="empires-page" type="button" aria-pressed="true">Empires</button><button id="map-page" type="button" aria-pressed="false">Galaxy map</button><button id="technologies-page" type="button" aria-pressed="false">Technologies</button></nav>
+      <div class="filters"><input id="search" type="search" aria-label="Search empires" placeholder="Search empires, species, civics…"><select id="sort" aria-label="Sort empires"><option value="name">Name</option><option value="planets">Most planets</option><option value="fleets">Most military fleets</option><option value="fleetPower">Highest fleet power</option><option value="economyPower">Highest economic power</option><option value="techPower">Highest technological power</option></select><span id="count">No save loaded</span></div>
+      <div class="category-filters" aria-label="Country categories">
+        <label><input type="checkbox" value="player" checked>Players <small data-category-count="player">0</small></label>
+        <label><input type="checkbox" value="ai" checked>AI empires <small data-category-count="ai">0</small></label>
+        <label><input type="checkbox" value="preftl">Pre-FTL <small data-category-count="preftl">0</small></label>
+        <label><input type="checkbox" value="enclave">Enclaves <small data-category-count="enclave">0</small></label>
+        <label><input type="checkbox" value="other">Other countries <small data-category-count="other">0</small></label>
+        <button id="players-only" type="button">Players only</button><button id="all-countries" type="button">Show all</button>
+      </div>
+    </div>
+    <section class="galaxy-map-panel" aria-labelledby="galaxy-map-title" hidden>
+      <div class="galaxy-map-header"><h2 id="galaxy-map-title">Galaxy map</h2><span id="galaxy-map-count">Load a save to view stars</span><div class="map-interface-actions"><button id="map-export" type="button">Export PNG</button><button id="map-fullscreen" type="button" aria-pressed="false">Fullscreen</button></div></div>
+      <div class="galaxy-map-wrap"><div class="map-viewport">
+      <details class="system-finder" id="system-finder"><summary>Finder</summary><div class="finder-controls">
+        <select id="finder-kind" aria-label="Structure"><option value="arc">Arc Furnace · tier 4</option><option value="dyson">Dyson Swarm · tier 3</option></select>
+        <select id="finder-country" aria-label="System owner"><option value="">All systems</option></select>
+        <select id="finder-mode" aria-label="Furnace mode"><option value="balanced">Balanced</option><option value="minerals">Minerals</option><option value="alloys">Alloys</option></select>
+        <select id="finder-resource" aria-label="Rank Dyson output" hidden><option value="energy">Energy</option><option value="physics_research">Physics</option><option value="society_research">Society</option><option value="engineering_research">Engineering</option><option value="minerals">Minerals</option><option value="alloys">Alloys</option><option value="sr_dark_matter">Dark matter</option><option value="unity">Unity</option></select>
+      </div><small>Approx. monthly output at max tier, all stations built. No empire bonuses. Physical suitability only; tech, limits, survey and access not checked.</small><div id="finder-results">Open Finder to search.</div></details>
+      <div class="galaxy-map-filters" aria-label="Map layers">
+        <label><input id="map-borders" type="checkbox">Borders</label>
+        <label><input id="map-lines" type="checkbox" checked>Hyperlanes</label>
+        <label><input id="map-wormholes" type="checkbox">Wormholes</label>
+        <label><input id="map-fleets" type="checkbox">Fleets</label>
+        <label><input id="map-arkships" type="checkbox">Arkships</label>
+        <label><input id="map-waystations" type="checkbox">Waystations</label>
+        <label><input type="checkbox" value="preftl">Pre-FTL</label>
+        <label><input type="checkbox" value="enclave" checked>Enclaves</label>
+        <label><input type="checkbox" value="leviathan">Leviathans</label>
+        <label><input type="checkbox" value="other">Neutral &amp; special</label>
+        <label><input id="map-cutholoids" type="checkbox">Hidden Cutholoids <small id="map-cutholoid-count">0</small></label>
+        <label><input id="map-wanderlust" type="checkbox" checked>Wanderlust</label>
+        <label>Wanderlust perspective <select id="map-wanderlust-perspective" aria-label="Wanderlust player perspective"><option value="">All nomadic empires</option></select></label>
+        <label><input id="map-perspective" type="checkbox">Perspective</label>
+        <select id="map-pov" aria-label="Empire perspective"><option value="">Pick empire</option></select>
+        <label><input id="map-hostile" type="checkbox">Threats &amp; hostile systems</label>
+        <label title="Always-hostile factions and creatures hostile to every player; ordinary empire wars are excluded"><input id="map-player-threats" type="checkbox">Universal threats</label>
+        <button id="map-reset" type="button">Fit map</button>
+      </div>
+      <div class="map-legend" aria-label="Map legend">
+        <span><span class="art-slot" data-icon-kind="mapIcon" data-icon-id="fleet" aria-hidden="true">◇</span>Fleet</span>
+        <span><span class="art-slot" data-icon-kind="mapIcon" data-icon-id="arkship" aria-hidden="true">◇</span>Arkship</span>
+        <span><span class="art-slot" data-icon-kind="mapIcon" data-icon-id="waystation" aria-hidden="true">◇</span>Waystation</span>
+        <span><span class="art-slot" data-icon-kind="mapIcon" data-icon-id="wormhole" aria-hidden="true">◇</span>Wormhole</span>
+        <span><span class="art-slot" data-icon-kind="mapIcon" data-icon-id="wanderlust" aria-hidden="true">◇</span>Wanderlust</span>
+        <span><span class="art-slot" data-icon-kind="mapIcon" data-icon-id="leviathan" aria-hidden="true">◇</span>Leviathan</span>
+        <span><span class="art-slot" data-icon-kind="mapIcon" data-icon-id="cutholoid" aria-hidden="true">◇</span>Hidden Cutholoid</span>
+        <span><i class="legend-visited">✓</i>Visited in Wanderlust perspective</span>
+        <span><i class="legend-line hyperlane"></i>Hyperlane</span>
+        <span><i class="legend-line wormhole"></i>Wormhole link</span>
+        <span>Faction flags: enclaves &amp; neutrals</span>
+        <span><i style="color:#f37765">● !</i>Hostile presence</span><span><i style="color:#d6a366">●</i>Closed borders / hidden threat</span>
+      </div>
+      <div class="route-dock"><details class="nomad-route-tools"><summary title="From the capital arkship to unvisited Wanderlust sites. Hyperlanes only; approximate cost, not days. Closed borders are ignored for nomads.">Wanderlust route ⓘ</summary><div class="galaxy-map-filters">
+        <label>Nomad <select id="route-empire" aria-label="Route nomadic empire"><option value="">Pick nomad</option></select></label>
+        <label title="Blocks systems above 3× the capital arkship's military power, plus threats with unknown power."><input id="route-avoid-major" type="checkbox" checked>Avoid major threats</label>
+        <label title="Blocks systems at or below 3× the capital arkship's military power."><input id="route-avoid-minor" type="checkbox" checked>Avoid minor threats</label>
+        <label>Goal <select id="route-goal" aria-label="Route optimization goal"><option value="sites">Most sites</option><option value="categories4">Reach 4 total categories</option></select></label>
+        <label>Sites <input id="route-limit" type="number" min="1" max="100" value="20" aria-label="Maximum sites"></label>
+        <label>Budget <input id="route-budget" type="number" min="0" max="10000" value="0" aria-label="Relative travel budget" title="Relative travel cost, not days. 0 = unlimited."></label>
+        <button id="route-build" type="button">Plan</button><button id="route-clear" type="button">Clear</button>
+      </div><div id="route-summary" aria-live="polite">Capital arkship → unvisited sites.</div></details><details class="nomad-route-tools enclave-route-tools"><summary>Enclave routes</summary><div class="finder-controls"><select id="enclave-empire" aria-label="Empire"><option value="">Pick empire</option></select><label><input id="enclave-avoid" type="checkbox" checked>Avoid threats</label><button id="enclave-find" type="button">Find nearest</button><button id="enclave-clear" type="button">Clear route</button></div><small>From capital · hyperlanes · speed penalties included. Closed borders block non-nomads. Cost is relative, not days.</small><div id="enclave-results" aria-live="polite"></div></details><div id="route-itinerary" aria-label="Route stops" hidden></div></div>
+      <canvas id="galaxy-map" aria-label="Galaxy map" tabindex="0"></canvas></div><div class="system-panel"><div class="system-panel-controls"><button id="map-detail-toggle" type="button" aria-expanded="true" aria-controls="galaxy-map-detail">Hide system panel</button><button id="map-detail-expand" type="button" aria-pressed="false">Expand system panel</button></div><aside id="galaxy-map-detail" aria-live="polite">Select a marker for details.</aside></div></div>
+      <small class="galaxy-map-note">Spoiler warning: threats include all saved fleets, stations and creatures, regardless of enabled map layers. Red: hostile presence or territory. Amber: closed borders or hidden Cutholoids. Individual neutrality is respected.</small>
+    </section>
+    <section class="technologies-panel" aria-labelledby="technologies-title" hidden>
+      <div class="technologies-header"><h2 id="technologies-title">Technology planner</h2><span id="tech-status">Open a save to plan research.</span></div>
+      <div class="technology-controls">
+        <label>Empire <select id="tech-empire" aria-label="Technology empire"><option value="">Load a save</option></select></label>
+        <label>Target <input id="tech-target" type="search" list="tech-target-list" placeholder="Search technology…" aria-label="Target technology"></label><datalist id="tech-target-list"></datalist>
+        <button id="tech-add-target" type="button">Add target</button><button id="tech-clear-target" type="button">Clear targets</button><button id="tech-export" type="button">Export plan</button><button id="tech-export-png" type="button">Export PNG</button><label class="open-save">Import plan<input id="tech-import" type="file" accept="application/json,.json"></label>
+        <button id="tech-undo" type="button">Undo simulated</button><button id="tech-reset" type="button">Reset simulation</button>
+      </div>
+      <div class="tech-science-tabs" role="tablist" aria-label="Research area"><button data-tech-area="physics" type="button" aria-pressed="true">Physics</button><button data-tech-area="society" type="button" aria-pressed="false">Society</button><button data-tech-area="engineering" type="button" aria-pressed="false">Engineering</button></div>
+      <div id="tech-targets" class="tech-recommendations"></div>
+      <div id="tech-exclusions" class="tech-exclusions" aria-live="polite"></div>
+      <div class="tech-workspace">
+        <div class="tech-main-column"><div id="tech-plan" class="tech-plan" aria-live="polite">Load a save to calculate a path.</div><div id="tech-tree" class="tech-tree">Technology definitions are loaded from this Stellaris installation.</div></div>
+        <aside id="tech-filler-panel" class="tech-filler-panel"><div class="tech-filler-header"><strong>Available fillers now</strong><small>Off-tree technologies drawable now · best → worst</small></div><div id="tech-filler-list">Load a save to inspect the current drawable pool.</div></aside>
+      </div>
+    </section>
+    <section id="empires"><div class="empty">Open a non-Ironman Stellaris save to inspect its empires.</div></section>
+  </main>
+  <script src="client-files.js"></script>
+  <script>
+    const fileInput = document.querySelector('#file');
+    const empireList = document.querySelector('#empires');
+    const meta = document.querySelector('#meta');
+    const status = document.querySelector('#status');
+    const gameSettings = document.querySelector('#game-location-settings');
+    const gameLocationInput = document.querySelector('#game-location-input');
+    const gameLocationStatus = document.querySelector('#game-location-status');
+    const gameLocationForm = document.querySelector('#game-location-form');
+    const clientGameButton = document.querySelector('#client-game-folder');
+    const clientSaveButton = document.querySelector('#client-save-folder');
+    const clientGameInput = document.querySelector('#client-game-files');
+    const clientSaveInput = document.querySelector('#client-save-files');
+    const clientFiles = window.ClientFiles || null;
+    let clientGameUsed = false;
+    let serverCapabilities = {public: false, latestSave: true, liveSnapshot: true, gameLocationConfig: true, gameFilesSource: 'server', saveFilesSource: 'server'};
+    function usesClientGameFiles() { return serverCapabilities.gameFilesSource === 'client'; }
+    function usesClientSaveFiles() { return serverCapabilities.saveFilesSource === 'client'; }
+    function updateClientFileControls() {
+      clientGameButton.hidden = !usesClientGameFiles();
+      clientSaveButton.hidden = !usesClientSaveFiles();
+      clientGameButton.textContent = clientFiles?.hasGameAccess() ? 'Stellaris подключён' : clientFiles?.hasGameDirectory() ? 'Подключить Stellaris снова' : 'Папка Stellaris';
+      clientSaveButton.textContent = clientFiles?.hasSaveAccess() ? 'Сейвы подключены' : clientFiles?.hasSaveDirectory() ? 'Подключить сейвы снова' : 'Папка сейвов';
+      document.querySelector('#latest-save').hidden = serverCapabilities.latestSave === false && !usesClientSaveFiles();
+      document.querySelector('#watch-saves').hidden = usesClientSaveFiles() ? !clientFiles?.canWatch : serverCapabilities.latestSave === false;
+    }
+    async function initializeServerCapabilities() {
+      try {
+        const response = await fetch('server-info');
+        if (response.ok) serverCapabilities = {...serverCapabilities, ...(await response.json())};
+      } catch (error) {
+        if (typeof location !== 'undefined') console.warn('Не удалось прочитать возможности сервера:', error);
+      }
+      document.querySelector('#live-map').hidden = serverCapabilities.liveSnapshot === false;
+      gameSettings.hidden = serverCapabilities.gameLocationConfig === false;
+      if (serverCapabilities.public) {
+        document.body.classList.add('public-mode');
+        document.querySelector('#tutorial').hidden = true;
+        if (usesClientGameFiles() || usesClientSaveFiles()) {
+          if (!clientFiles) throw new Error('Модуль локальных файлов не загружен.');
+          await clientFiles.initialize();
+          if (clientFiles.hasGameDirectory() || clientFiles.hasSaveDirectory()) {
+            try { await clientFiles.enable('restore'); }
+            catch (error) { console.warn('Требуется повторное разрешение на локальные папки:', error); }
+          }
+          updateClientFileControls();
+          const modeNote = clientFiles.mode === 'persistent' ? 'Доступ сохраняется в браузере.' : 'На HTTP папки нужно выбирать заново после перезагрузки.';
+          status.textContent = clientFiles.hasGameAccess() ? `Игровые файлы читаются только с этого устройства. ${modeNote}` : `Выберите папку Stellaris на своём устройстве. ${modeNote}`;
+        } else {
+          status.textContent = 'Public mode: open saves are processed locally in your browser.';
+        }
+        return;
+      }
+      updateClientFileControls();
+      if (serverCapabilities.gameLocationConfig === false) return;
+      try {
+        const response = await fetch('game-location', {headers: {'X-Stellaris-Config': '1'}});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Не удалось прочитать настройки.');
+        if (result.gameLocation) { gameLocationInput.value = result.gameLocation; gameLocationStatus.textContent = 'Настройка сохранена между запусками.'; }
+        else { gameSettings.open = true; status.textContent = 'Выберите папку Stellaris для загрузки игровых файлов.'; }
+      } catch (error) { gameSettings.open = true; gameLocationStatus.textContent = error.message; }
+    }
+    const serverCapabilitiesReady = initializeServerCapabilities();
+    function prepareClientSourceChange() {
+      liveRevision++;
+      stopLiveRuntime();
+      stopWatchingSaves();
+    }
+    function resetClientSaveRevision() {
+      latestRevision = '';
+      ignoredLatestRevision = '';
+    }
+    async function connectClientGameDirectory() {
+      try {
+        if (clientFiles.mode === 'persistent') {
+          prepareClientSourceChange();
+          await clientFiles.chooseGameDirectory();
+          await clientFiles.enable('game');
+          location.reload();
+        } else {
+          if (clientGameUsed) { status.textContent = 'Чтобы сменить папку Stellaris без смешивания данных, перезагрузите страницу и выберите новую папку.'; return; }
+          clientGameInput.click();
+        }
+      } catch (error) { status.textContent = `Не удалось подключить папку Stellaris: ${error.message}`; }
+    }
+    async function connectClientSaveDirectory() {
+      try {
+        prepareClientSourceChange();
+        resetClientSaveRevision();
+        if (clientFiles.mode === 'persistent') {
+          await clientFiles.chooseSaveDirectory();
+          await clientFiles.enable('save');
+          updateClientFileControls();
+          status.textContent = 'Папка сохранений подключена. Latest Save работает локально.';
+        } else {
+          clientSaveInput.click();
+        }
+      } catch (error) { status.textContent = `Не удалось подключить папку сохранений: ${error.message}`; }
+    }
+    clientGameButton.addEventListener('click', connectClientGameDirectory);
+    clientSaveButton.addEventListener('click', connectClientSaveDirectory);
+    clientGameInput.addEventListener('change', async event => {
+      try {
+        if (clientGameUsed) throw new Error('Перезагрузите страницу перед сменой папки Stellaris.');
+        prepareClientSourceChange();
+        clientFiles.setGameFiles(event.target.files);
+        await clientFiles.enable('game');
+        updateClientFileControls();
+        status.textContent = 'Папка Stellaris подключена до перезагрузки страницы. Ассеты читаются локально.';
+      } catch (error) { status.textContent = `Не удалось подключить папку Stellaris: ${error.message}`; }
+    });
+    clientSaveInput.addEventListener('change', async event => {
+      try {
+        prepareClientSourceChange();
+        resetClientSaveRevision();
+        clientFiles.setSaveFiles(event.target.files);
+        await clientFiles.enable('save');
+        updateClientFileControls();
+        status.textContent = 'Сейвы подключены до перезагрузки страницы. Latest Save работает локально.';
+      } catch (error) { status.textContent = `Не удалось подключить папку сохранений: ${error.message}`; }
+    });
+    gameLocationForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = gameLocationForm.querySelector('button');
+      button.disabled = true;
+      gameLocationStatus.textContent = 'Проверяю папку игры…';
+      try {
+        const response = await fetch('game-location', {method: 'POST', headers: {'X-Stellaris-Config': '1', 'Content-Type': 'text/plain; charset=us-ascii'}, body: 'path=' + encodeURIComponent(gameLocationInput.value.trim())});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Не удалось сохранить папку игры.');
+        location.reload();
+      } catch (error) { gameLocationStatus.textContent = error.message; button.disabled = false; }
+    });
+    let liveRevision = 0;
+    let liveRuntime;
+    let liveReadOperation;
+    let watchingSaves = false, watchTimer, watchAbort, latestRevision = '', ignoredLatestRevision = '', hasSave = false;
+    const watchButton = document.querySelector('#watch-saves');
+    function stopWatchingSaves() {
+      if (watchingSaves) liveRevision++;
+      watchingSaves = false;
+      clearTimeout(watchTimer);
+      watchAbort?.abort();
+      watchAbort = undefined;
+      watchButton.setAttribute('aria-pressed', 'false');
+      watchButton.textContent = 'Следить за сейвами';
+    }
+    function stopLiveRuntime() { liveRuntime?.stop(); liveButton.textContent = 'Карта из памяти'; }
+    for (const id of ['clear', 'tutorial', 'file']) document.querySelector(`#${id}`).addEventListener(id === 'file' ? 'change' : 'click', () => { liveRevision++; stopLiveRuntime(); stopWatchingSaves(); });
+
+    const liveButton = document.querySelector('#live-map');
+    liveButton.type = 'button'; liveButton.textContent = 'Карта из памяти';
+    liveButton.title = 'Включить/остановить автообновление RAM. Shift+клик: новый поиск. Ctrl не используется.';
+    liveButton.addEventListener('click', event => {
+      if (liveRuntime?.running && !event.shiftKey) { stopLiveRuntime(); status.textContent = 'Автообновление RAM остановлено. На карте последний снимок.'; return; }
+      stopWatchingSaves();
+      liveRuntime?.stop();
+      const revision = ++liveRevision;
+      let first = true, forceRescan = event.shiftKey, lastDiscovery = Date.now();
+      status.textContent = 'Подключение к RAM Stellaris… Поиск и восстановление выполняются автоматически.';
+      liveRuntime = LiveRuntime.createRuntime({
+        intervalMs: 2000,
+        read: async signal => {
+          // Новый экземпляр цикла тоже ждёт отменённый запрос предыдущего экземпляра.
+          if (liveReadOperation) {
+            try { await liveReadOperation; } catch { /* Ошибка принадлежит прежнему циклу и обрабатывается им. */ }
+          }
+          if (signal.aborted) throw new DOMException('Чтение отменено.', 'AbortError');
+          const operation = (async () => {
+          const controller = new AbortController(), abort = () => controller.abort();
+          signal.addEventListener('abort', abort, {once: true});
+          const timeout = setTimeout(abort, 110000);
+          try {
+            const rescan = forceRescan || Date.now() - lastDiscovery >= 120000;
+            const response = await fetch('live/snapshot', {headers: {'X-Stellaris-Live': '1', 'X-Stellaris-Rescan': rescan ? '1' : '0'}, signal: controller.signal});
+            const snapshot = await response.json();
+            if (!response.ok) throw new Error(snapshot.error || 'Для живой карты нужен обновлённый server.ps1.');
+            await English.load();
+            const nextModel = LiveMap.model(snapshot, key => English.has(key) ? English.expand(key) : key);
+            if (!snapshot.cachedAddresses) lastDiscovery = Date.now();
+            forceRescan = false;
+            return {snapshot, nextModel};
+          } finally { clearTimeout(timeout); signal.removeEventListener('abort', abort); }
+          })();
+          liveReadOperation = operation;
+          try { return await operation; }
+          finally { if (liveReadOperation === operation) liveReadOperation = undefined; }
+        },
+        onSnapshot: ({snapshot, nextModel}) => {
+          if (revision !== liveRevision) return;
+          if (first) {
+            resetView(); meta.title = '';
+            empireList.innerHTML = '<div class="empty">Живой режим: данные империй и флотов ещё не подключены. Для них откройте сохранение.</div>';
+            selectPage('map'); first = false;
+          }
+          GalaxyMap.updateLive(nextModel);
+          meta.textContent = `RAM · PID ${snapshot.processId} · ${snapshot.capturedAt}`;
+          status.textContent = 'RAM: автообновление каждые 2 секунды после завершения запроса. Подключены системы, классы звёзд, империи, флаги, цвета и флоты. Дипломатия, угрозы и специальные объекты пока неизвестны. Снимок не атомарный.';
+        },
+        onError: error => { if (revision === liveRevision) status.textContent = `RAM временно недоступна: ${error.message}. Автоматически повторю; на карте последний успешный снимок.`; }
+      });
+      liveButton.textContent = 'Остановить RAM';
+      liveRuntime.start();
+    });
+
+    async function loadSave(file, revision, options = {}) {
+      try {
+        if (file.size > 512 * 1024 * 1024) throw new Error('Сохранение превышает безопасный лимит 512 МиБ.');
+        if (usesClientGameFiles()) clientGameUsed = true;
+        status.textContent = options.watch ? 'Найден новый сейв · обновляю данные…' : 'Reading save…';
+        const gamestate = await readZipEntry(await file.arrayBuffer(), 'gamestate');
+        const text = new TextDecoder().decode(gamestate);
+        if (!/\bcountry\s*=\s*\{/.test(text)) throw new Error('This save uses a binary or unsupported gamestate. Export an unencrypted/non-Ironman save.');
+        const saveMeta = await tryReadMeta(file);
+        status.textContent = 'Loading English game localization…';
+        await Promise.all([English.load(), ShipTypes.load(), CombatStats.load()]);
+        if (revision !== liveRevision) return false;
+        const countries = parseCountries(text);
+        const galaxy = parseGalaxy(text, countries), info = parseMetadata(saveMeta || text);
+        if (revision !== liveRevision) return false;
+        const preserve = hasSave && GalaxyMap.sameGalaxy(galaxy);
+        if (options.watch && hasSave && !preserve) {
+          ignoredLatestRevision = options.latestRevision || '';
+          status.textContent = 'Новый сейв относится к другой галактике. Автообновление ждёт сейв текущей партии.';
+          return false;
+        }
+        render(countries, galaxy, info, file.name, text, {preserve});
+        hasSave = true;
+        latestRevision = options.latestRevision || '';
+        ignoredLatestRevision = '';
+        status.textContent = options.watch ? `Обновлено из ${file.name} · ${info.date}` : `Loaded locally · ${info.date}`;
+        return true;
+      } catch (error) {
+        if (revision !== liveRevision) return false;
+        if (!hasSave) { empireList.innerHTML = `<div class="empty">Could not read this save: ${escapeHtml(error.message)}</div>`; meta.textContent = 'No data loaded'; }
+        status.textContent = `Не удалось прочитать сейв: ${error.message}. ${hasSave ? 'Показаны предыдущие данные.' : 'Выберите другой файл.'}`;
+        return false;
+      }
+    }
+
+    fileInput.addEventListener('change', async event => {
+      await serverCapabilitiesReady;
+      const file = event.target.files[0];
+      if (!file) return;
+      if (usesClientGameFiles() && !clientFiles.hasGameAccess()) {
+        status.textContent = 'Сначала выберите папку Stellaris: локализация и изображения читаются с вашего устройства.';
+        return;
+      }
+      loadSave(file, liveRevision);
+    });
+
+    async function fetchLatestSave(revision, options = {}) {
+      const {signal, watch = false} = options;
+      try {
+        if (usesClientSaveFiles()) {
+          const latest = await clientFiles.latestSave();
+          const file = latest.file;
+          const clientRevision = latest.revision;
+          if (revision !== liveRevision) return false;
+          return await loadSave(file, revision, {watch, latestRevision: clientRevision});
+        }
+        const response = await fetch('latest-save', {headers: {'X-Stellaris-Save': '1'}, signal});
+        if (!response.ok) {
+          let message = 'Latest save could not be loaded.';
+          try { message = (await response.json()).error || message; } catch { /* Сервер мог вернуть обычный текст. */ }
+          throw new Error(message);
+        }
+        const encodedName = response.headers.get('X-Stellaris-Filename') || 'latest.sav';
+        let fileName = 'latest.sav';
+        try { fileName = decodeURIComponent(encodedName); } catch { /* Используем безопасное имя по умолчанию. */ }
+        const modified = Date.parse(response.headers.get('X-Stellaris-Modified') || '');
+        const file = new File([await response.arrayBuffer()], fileName, {type: 'application/zip', lastModified: Number.isFinite(modified) ? modified : Date.now()});
+        if (revision !== liveRevision) return false;
+        return await loadSave(file, revision, {watch, latestRevision: response.headers.get('X-Stellaris-Revision') || ''});
+      } catch (error) {
+        if (revision !== liveRevision || error.name === 'AbortError') return false;
+        status.textContent = `Не удалось загрузить последний сейв: ${error.message}. ${hasSave ? 'Показаны предыдущие данные.' : 'Повторите попытку.'}`;
+        return false;
+      }
+    }
+    document.querySelector('#latest-save').addEventListener('click', async () => {
+      await serverCapabilitiesReady;
+      const button = document.querySelector('#latest-save');
+      stopWatchingSaves();
+      const revision = ++liveRevision;
+      stopLiveRuntime();
+      fileInput.value = '';
+      button.disabled = true;
+      status.textContent = 'Searching for the latest Stellaris save…';
+      try {
+        if (usesClientGameFiles() && !clientFiles.hasGameAccess()) throw new Error('Сначала выберите папку Stellaris.');
+        if (usesClientSaveFiles() && !clientFiles.hasSaveAccess()) throw new Error('Сначала выберите папку сохранений или конкретной кампании.');
+        await fetchLatestSave(revision);
+      } catch (error) { status.textContent = error.message; }
+      finally { button.disabled = false; }
+    });
+    async function checkLatestSave() {
+      if (!watchingSaves) return;
+      const controller = new AbortController();
+      watchAbort = controller;
+      try {
+        if (usesClientSaveFiles()) {
+          const latest = await clientFiles.latestSave();
+          const file = latest.file;
+          const revision = latest.revision;
+          if (revision !== latestRevision && revision !== ignoredLatestRevision && watchingSaves) await loadSave(file, ++liveRevision, {watch: true, latestRevision: revision});
+          return;
+        }
+        const response = await fetch('latest-save', {method: 'HEAD', headers: {'X-Stellaris-Save': '1'}, signal: controller.signal});
+        if (!response.ok) throw new Error(`Проверка последнего сейва: HTTP ${response.status}`);
+        const revision = response.headers.get('X-Stellaris-Revision');
+        if (!revision) throw new Error('Сервер не поддерживает слежение за сейвами. Перезапустите start.cmd.');
+        if (revision !== latestRevision && revision !== ignoredLatestRevision && watchingSaves) await fetchLatestSave(++liveRevision, {watch: true, signal: controller.signal});
+      } catch (error) {
+        if (watchingSaves && error.name !== 'AbortError') status.textContent = `Слежение: ${error.message}. Повторю проверку.`;
+      } finally {
+        if (watchAbort === controller) watchAbort = undefined;
+        if (watchingSaves) watchTimer = setTimeout(checkLatestSave, 1500);
+      }
+    }
+    watchButton.addEventListener('click', async () => {
+      await serverCapabilitiesReady;
+      if (watchingSaves) { stopWatchingSaves(); status.textContent = 'Слежение за сейвами остановлено.'; return; }
+      if (usesClientGameFiles() && !clientFiles.hasGameAccess()) { status.textContent = 'Сначала выберите папку Stellaris.'; return; }
+      if (usesClientSaveFiles() && !clientFiles.canWatch) { status.textContent = clientFiles.mode === 'snapshot' ? 'На HTTP автообновление недоступно: выберите папку сейвов повторно и нажмите Latest Save.' : 'Сначала подключите папку сейвов.'; return; }
+      stopLiveRuntime();
+      watchingSaves = true;
+      watchButton.setAttribute('aria-pressed', 'true');
+      watchButton.textContent = 'Остановить слежение';
+      status.textContent = 'Слежу за новыми сейвами текущей партии…';
+      checkLatestSave();
+    });
+
+    document.querySelector('#clear').addEventListener('click', () => {
+      resetView();
+      TechPlanner?.clear();
+      GalaxyMap.render({systems: [], neutral: [], markers: [], pois: [], hiddenCutholoids: [], countries: [], wanderlustCountries: [], relations: {}, wars: []});
+      hasSave = false; latestRevision = ''; ignoredLatestRevision = '';
+      fileInput.value = '';
+      empireList.innerHTML = '<div class="empty">Open a non-Ironman Stellaris save to inspect its empires.</div>';
+      meta.textContent = 'Choose a Stellaris .sav file';
+      status.textContent = 'All parsing is local — no save data is uploaded.';
+    });
+    function selectPage(page) {
+      const map = page === 'map', technologies = page === 'technologies';
+      if (!map && document.fullscreenElement === document.querySelector('.galaxy-map-panel')) {
+        document.exitFullscreen().then(() => selectPage(page)).catch(error => {
+          console.warn('Не удалось выйти из полноэкранного режима:', error);
+          status.textContent = 'Press Esc to exit fullscreen before opening empires.';
+        });
+        return;
+      }
+      document.body.classList.toggle('map-active', map);
+      document.body.classList.toggle('technologies-active', technologies);
+      document.querySelector('#empires').hidden = map || technologies;
+      document.querySelector('.filters').hidden = map || technologies;
+      document.querySelector('.category-filters').hidden = map || technologies;
+      document.querySelector('.galaxy-map-panel').hidden = !map;
+      document.querySelector('.technologies-panel').hidden = !technologies;
+      document.querySelector('header h1').textContent = map ? 'Galaxy map' : technologies ? 'Technologies' : 'Galactic empires';
+      document.querySelector('#empires-page').setAttribute('aria-pressed', String(!map && !technologies));
+      document.querySelector('#map-page').setAttribute('aria-pressed', String(map));
+      document.querySelector('#technologies-page').setAttribute('aria-pressed', String(technologies));
+      if (technologies) requestAnimationFrame(() => TechPlanner?.redraw());
+      if (map) requestAnimationFrame(() => GalaxyMap.resize());
+    }
+    document.querySelector('#empires-page').addEventListener('click', () => selectPage('empires'));
+    document.querySelector('#map-page').addEventListener('click', () => selectPage('map'));
+    document.querySelector('#technologies-page').addEventListener('click', () => selectPage('technologies'));
+
+    async function tryReadMeta(file) {
+      try { return new TextDecoder().decode(await readZipEntry(await file.arrayBuffer(), 'meta')); } catch { return ''; }
+    }
+
+    async function readZipEntry(buffer, wantedName) {
+      const bytes = new Uint8Array(buffer), view = new DataView(buffer);
+      let eocd = -1;
+      for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65558); i--) if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+      if (eocd < 0) throw new Error('Not a ZIP-based Stellaris save.');
+      let cursor = view.getUint32(eocd + 16, true), entry;
+      const count = view.getUint16(eocd + 10, true);
+      for (let n = 0; n < count; n++) {
+        if (view.getUint32(cursor, true) !== 0x02014b50) throw new Error('Invalid ZIP directory.');
+        const nameLength = view.getUint16(cursor + 28, true), extraLength = view.getUint16(cursor + 30, true), commentLength = view.getUint16(cursor + 32, true);
+        const name = new TextDecoder().decode(bytes.slice(cursor + 46, cursor + 46 + nameLength));
+        if (name === wantedName) { entry = { method: view.getUint16(cursor + 10, true), size: view.getUint32(cursor + 24, true), offset: view.getUint32(cursor + 42, true) }; break; }
+        cursor += 46 + nameLength + extraLength + commentLength;
+      }
+      if (!entry) throw new Error(`Archive has no ${wantedName} entry.`);
+      const local = entry.offset, nameLength = view.getUint16(local + 26, true), extraLength = view.getUint16(local + 28, true);
+      const compressedSize = view.getUint32(local + 18, true), data = bytes.slice(local + 30 + nameLength + extraLength, local + 30 + nameLength + extraLength + compressedSize);
+      if (entry.method === 0) return data;
+      if (entry.method !== 8 || !('DecompressionStream' in window)) throw new Error('Your browser cannot decompress this save. Use a current Chrome or Edge.');
+      return new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    }
+
+    function parseMetadata(text) { return { name: valueOf(text, 'name') || 'Unnamed save', date: valueOf(text, 'date') || 'Unknown date', version: valueOf(text, 'version') || '' }; }
+    function parseCountries(text) {
+      const tables = new Map(SaveFormat.entries(text).filter(entry => entry.block !== undefined).map(entry => [entry.key, entry.block]));
+      const countryRoot = tables.has('country') ? { content: tables.get('country') } : null;
+      if (!countryRoot) throw new Error('The country table was not found.');
+      const species = speciesById({ content: tables.get('species_db') || '' });
+      const players = new Set([...(tables.get('player') || '').matchAll(/\bcountry\s*=\s*(\d+)/g)].map(match => match[1]));
+      const readFleets = SaveFleets.create(tables);
+      const entries = objectEntries(countryRoot.content);
+      return entries.map(({ key, content }) => {
+        const country = countryFromBlock(key, content, species);
+        country.wanderlust = SaveFormat.wanderlustStatus(content);
+        const mapColorOption = SaveFormat.scalar(SaveFormat.block(content, 'flag'), 'use_map_color') || SaveFormat.scalar(content, 'use_map_color');
+        if (mapColorOption) country.flag.useMapColor = mapColorOption === 'yes';
+        country.fleetDetails = readFleets(content);
+        country.fleets = country.fleetDetails.filter(fleet => fleet.kind === 'Military').length;
+        country.fleetPowerSummary = SaveFleets.powerSummary(country.fleetDetails);
+        country.fleetPower = country.fleetPowerSummary.total;
+        country.category = players.has(key) ? 'player' : /primitive|pre_ftl/.test(country.type) ? 'preftl' : /enclave/.test(country.type) ? 'enclave' : country.type === 'default' ? 'ai' : 'other';
+        return country;
+      });
+    }
+    function countryFromBlock(id, text, species) {
+      const type = directValue(text, 'type');
+      const authority = valueOf(text, 'authority');
+      const government = SaveFormat.scalar(SaveFormat.block(text, 'government'), 'type') || directValue(text, 'government');
+      const shipset = directValue(text, 'graphical_culture');
+      const adjective = English.saved(text, 'adjective');
+      const rawName = English.saved(text, 'name', { ADJ: adjective, ADJECTIVE: adjective });
+      const planets = listCount(blockAfter(text, 'owned_planets', 0));
+      const fleets = (blockAfter(text, 'owned_fleets', 0)?.content.match(/(?:^|\s)fleet\s*=\s*\d+/g) || []).length;
+      const resources = SaveEconomy.read(text, ['energy', 'minerals', 'food', 'alloys', 'consumer_goods', 'unity', 'influence', 'physics_research', 'society_research', 'engineering_research']);
+      const flagBlock = blockAfter(text, 'flag', 0)?.content || '';
+      const icon = blockAfter(flagBlock, 'icon', 0)?.content || '';
+      const background = blockAfter(flagBlock, 'background', 0)?.content || '';
+      const civics = quotedValues(blockAfter(text, 'civics', 0)).filter(value => value.startsWith('civic_'));
+      const origin = valueOf(text, 'origin');
+      const speciesId = valueOf(text, 'founder_species_ref');
+      const traits = [{ id: origin, kind: 'origin' }, ...civics.map(id => ({ id, kind: 'civic' }))];
+      if (species[speciesId]) { traits.push({ id: species[speciesId].name, kind: 'species' }); traits.push(...species[speciesId].traits.map(id => ({ id, kind: 'speciesTrait' }))); }
+      return { id, type, isNomadic: directValue(text, 'is_nomadic') === 'yes', isEmpire: type === 'default' || authority.startsWith('auth_'), name: rawName || `Unknown Empire ${id}`, government: English.label(government || authority || type || 'Unknown'), governmentId: government, authority: English.label(authority || type || '—'), authorityId: authority, shipset, portrait: species[speciesId]?.portrait || '', planets, fleets, economyPower: numericValue(text, 'economy_power'), techPower: numericValue(text, 'tech_power'), resources, flag: { category: valueOf(icon, 'category'), file: valueOf(icon, 'file'), backgroundCategory: valueOf(background, 'category'), backgroundFile: valueOf(background, 'file'), colors: quotedValues(blockAfter(flagBlock, 'colors', 0)) }, traits };
+    }
+    function numericValue(text, key) { const raw = directValue(text, key); return raw !== '' && Number.isFinite(Number(raw)) ? Number(raw) : null; }
+    function directValue(text, key) {
+      const regex = /([\w.]+)\s*=\s*("(?:\\.|[^"\\])*"|\{|[^\s{}]+)/g;
+      let match;
+      while ((match = regex.exec(text))) {
+        if (match[2] === '{') {
+          const block = blockFrom(text, regex.lastIndex - 1);
+          if (!block) return '';
+          regex.lastIndex = block.end;
+        } else if (match[1] === key) {
+          return match[2].replace(/^"|"$/g, '');
+        }
+      }
+      return '';
+    }
+    function blockAfter(text, key, from) { const match = new RegExp('(?:^|\\s)' + escapeRegex(key) + '\\s*=\\s*\\{', 'm').exec(text.slice(from)); if (!match) return null; const start = from + match.index + match[0].lastIndexOf('{'); let depth = 0, quote = false; for (let i = start; i < text.length; i++) { if (text[i] === '"' && text[i - 1] !== '\\') quote = !quote; if (!quote && text[i] === '{') depth++; if (!quote && text[i] === '}' && --depth === 0) return { content: text.slice(start + 1, i), end: i + 1 }; } return null; }
+    function objectEntries(text) { const result = [], regex = /(?:^|\s)(\d+)\s*=\s*\{/g; let match; while ((match = regex.exec(text))) { const start = match.index + match[0].lastIndexOf('{'), block = blockFrom(text, start); if (!block) break; result.push({ key: match[1], content: block.content }); regex.lastIndex = block.end; } return result; }
+    function blockFrom(text, start) { let depth = 0, quote = false; for (let i = start; i < text.length; i++) { if (text[i] === '"' && text[i - 1] !== '\\') quote = !quote; if (!quote && text[i] === '{') depth++; if (!quote && text[i] === '}' && --depth === 0) return { content: text.slice(start + 1, i), end: i + 1 }; } return null; }
+    function valueOf(text, key) { const match = new RegExp('(?:^|\\s)' + escapeRegex(key) + '\\s*=\\s*(?:"([^"]*)"|([^\\s{}]+))', 'm').exec(text); return (match && (match[1] || match[2])) || ''; }
+    function escapeRegex(value) { return value.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&'); }
+    function listCount(block) { return block ? (block.content.match(/(?:^|\s)\d+(?=\s|$)/g) || []).length : 0; }
+    function quotedValues(block) { return block ? [...block.content.matchAll(/"([^"]+)"/g)].map(match => match[1]) : []; }
+    function speciesById(block) { const result = {}; if (!block) return result; for (const entry of objectEntries(block.content)) { const traits = [...entry.content.matchAll(/(?:^|\s)trait\s*=\s*"?([^\s"{}]+)"?/gm)].map(match => match[1]); result[entry.key] = { name: English.saved(entry.content) || `Species ${entry.key}`, portrait: directValue(entry.content, 'portrait'), traits }; } return result; }
+    function readable(value) { return value.replace(/^auth_/, '').replace(/^gov_/, '').replace(/^trait_/, '').replace(/^EMPIRE_DESIGN_/, '').replace(/[_.]/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase()); }
+    function parseGalaxy(text, countries) {
+      const NONE = '4294967295';
+      const tables = new Map(SaveFormat.entries(text).filter(entry => entry.block !== undefined).map(entry => [entry.key, entry.block]));
+      const galaxy = SaveFormat.entries(tables.get('galactic_object') || '');
+      const systems = new Map();
+      for (const entry of galaxy) {
+        if (!/^\d+$/.test(entry.key || '') || entry.block === undefined) continue;
+        const coordinate = SaveFormat.block(entry.block, 'coordinate');
+        const x = Number(SaveFormat.scalar(coordinate, 'x')), y = Number(SaveFormat.scalar(coordinate, 'y'));
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+        const hyperlanes = SaveFormat.block(entry.block, 'hyperlane');
+        const wormholes = [];
+        const starbaseIds = SaveFormat.entries(SaveFormat.block(entry.block, 'starbases')).map(field => field.scalar).filter(id => id && /^\d+$/.test(id) && id !== NONE);
+        systems.set(entry.key, {id: entry.key, x, y, name: English.saved(entry.block, 'name') || `System ${entry.key}`, links: SaveFormat.entries(hyperlanes).map(field => field.block === undefined ? '' : SaveFormat.scalar(field.block, 'to')).filter(Boolean), wormholes: wormholes.filter(id => /^\d+$/.test(id)), starbaseIds, ownerId: '', flags: SaveFormat.entries(SaveFormat.block(entry.block, 'flags')).map(field => field.key || field.scalar).filter(Boolean)});
+      }
+      for (const entry of galaxy) if (systems.has(entry.key)) {
+        const system = systems.get(entry.key);
+        system.starClass = SaveFormat.scalar(entry.block, 'star_class');
+        const modifierFields = [...SaveFormat.entries(entry.block), ...SaveFormat.entries(SaveFormat.block(entry.block, 'modifiers'))];
+        system.modifiers = modifierFields.filter(field => field.key === 'modifier').map(field => field.block !== undefined ? SaveFormat.scalar(field.block, 'modifier') || SaveFormat.scalar(field.block, 'name') : field.scalar).filter(Boolean);
+      }
+      const bypasses = new Map(SaveFormat.entries(tables.get('bypasses') || '').filter(e => e.block !== undefined).map(e => [e.key, e.block]));
+      const endpoints = new Map();
+      for (const entry of SaveFormat.entries(tables.get('natural_wormholes') || '')) {
+        if (entry.block === undefined) continue;
+        const bypass = SaveFormat.scalar(entry.block, 'bypass');
+        const system = systems.get(SaveFormat.scalar(SaveFormat.block(entry.block, 'coordinate'), 'origin'));
+        if (!system || !/^(?:wormhole|strange_wormhole|starlit_wormhole|entropy_wormhole)$/.test(SaveFormat.scalar(bypasses.get(bypass), 'type'))) continue;
+        endpoints.set(bypass, system);
+        system.hasWormhole = true;
+      }
+      for (const [id, system] of endpoints) {
+        const block = bypasses.get(id);
+        const targets = [SaveFormat.scalar(block, 'linked_to'), ...SaveFormat.entries(SaveFormat.block(block, 'connections')).map(e => e.scalar)];
+        for (const target of targets) {
+          const other = endpoints.get(target);
+          if (!other || other.id === system.id) continue;
+          if (!system.wormholes.includes(other.id)) system.wormholes.push(other.id);
+          if (!other.wormholes.includes(system.id)) other.wormholes.push(system.id);
+        }
+      }
+      const hiddenCutholoids = [];
+      const depositTypes = new Map(SaveFormat.entries(tables.get('deposit') || '').filter(entry => entry.block !== undefined).map(entry => [entry.key, SaveFormat.scalar(entry.block, 'type')]));
+      const planetSystems = new Map();
+      const planetsTable = tables.get('planets') || '';
+      for (const entry of SaveFormat.entries(SaveFormat.block(planetsTable, 'planet') || planetsTable)) {
+        if (!entry.key || entry.block === undefined) continue;
+        const system = systems.get(SaveFormat.scalar(SaveFormat.block(entry.block, 'coordinate'), 'origin'));
+        if (!system) continue;
+        const planetClass = SaveFormat.scalar(entry.block, 'planet_class');
+        planetSystems.set(entry.key, system);
+        if (!system.bodies) system.bodies = [];
+        const planetFlags = SaveFormat.entries(SaveFormat.block(entry.block, 'flags')).map(field => field.key || field.scalar).filter(Boolean);
+        system.bodies.push({id: entry.key, planetClass, deposits: SaveFormat.entries(SaveFormat.block(entry.block, 'deposits')).map(field => depositTypes.get(field.scalar) || field.scalar).filter(Boolean), flags: planetFlags, anomaly: Boolean(SaveFormat.block(entry.block, 'anomaly') || SaveFormat.scalar(entry.block, 'anomaly'))});
+        if (/^pc_(?:[abfgkmt](?:_giant)?_star|neutron_star|pulsar|black_hole)$/.test(planetClass)) {
+          if (!system.starClasses) system.starClasses = [];
+          system.starClasses.push(planetClass.replace(/^pc_/, 'sc_').replace(/_star$/, match => planetClass === 'pc_neutron_star' ? match : ''));
+        }
+        if (planetClass !== 'pc_cutholoid') continue;
+        hiddenCutholoids.push({id: entry.key, kind: 'cutholoid', name: English.saved(entry.block, 'name') || 'Hidden Cutholoid', system});
+      }
+      const countryById = new Map(countries.map(country => [country.id, country]));
+      for (const entry of SaveFormat.entries(tables.get('megastructures') || '')) {
+        if (entry.block === undefined) continue;
+        const planetId = SaveFormat.scalar(entry.block, 'planet');
+        const system = planetSystems.get(planetId) || systems.get(SaveFormat.scalar(SaveFormat.block(entry.block, 'coordinate'), 'origin'));
+        if (!system) continue;
+        if (!system.megastructures) system.megastructures = [];
+        system.megastructures.push(SaveFormat.scalar(entry.block, 'type'));
+        const body = system.bodies?.find(body => body.id === planetId);
+        if (body) body.flags.push('has_megastructure');
+      }
+      const countryBlocks = new Map(SaveFormat.entries(tables.get('country') || '').filter(entry => entry.key && entry.block !== undefined).map(entry => [entry.key, entry.block]));
+      const fleetBlocks = new Map(SaveFormat.entries(tables.get('fleet') || '').filter(entry => entry.key && entry.block !== undefined).map(entry => [entry.key, entry.block]));
+      const shipBlocks = new Map(SaveFormat.entries(tables.get('ships') || '').filter(entry => entry.key && entry.block !== undefined).map(entry => [entry.key, entry.block]));
+      const starbases = new Map(SaveFormat.entries(SaveFormat.block(tables.get('starbase_mgr') || '', 'starbases')).filter(entry => entry.key && entry.block !== undefined).map(entry => [entry.key, entry.block]));
+      const designs = new Map(SaveFormat.entries(tables.get('ship_design') || '').filter(entry => entry.key && entry.block !== undefined).map(entry => [entry.key, entry.block]));
+      function shipSize(id) {
+        const text = shipBlocks.get(id);
+        if (!text) return '';
+        const implementation = SaveFormat.block(text, 'ship_design_implementation');
+        const designId = implementation ? SaveFormat.scalar(implementation, 'design') : SaveFormat.scalar(text, 'ship_design');
+        const design = designs.get(designId) || '';
+        const stageValue = SaveFormat.scalar(implementation, 'growth_stage');
+        const stages = SaveFormat.entries(SaveFormat.block(design, 'growth_stages')).filter(entry => entry.block !== undefined);
+        const stage = stageValue === '' ? (stages.length === 1 ? 0 : null) : Number(stageValue);
+        const current = Number.isInteger(stage) ? stages[stage]?.block : '';
+        return SaveFormat.scalar(current, 'ship_size') || SaveFormat.scalar(design, 'ship_size') || SaveFormat.scalar(text, 'ship_size');
+      }
+      function fleetMembers(block) { return [...new Set(SaveFormat.entries(SaveFormat.block(block, 'ships')).filter(entry => entry.key === undefined && /^\d+$/.test(entry.scalar)).map(entry => entry.scalar))]; }
+      function ownedFleetIds(countryId) {
+        const manager = SaveFormat.block(countryBlocks.get(countryId), 'fleets_manager');
+        const owned = SaveFormat.block(manager || countryBlocks.get(countryId), 'owned_fleets');
+        return [...new Set(SaveFormat.entries(owned).map(entry => entry.block !== undefined ? SaveFormat.scalar(entry.block, 'fleet') : entry.key === 'fleet' ? entry.scalar : '').filter(Boolean))];
+      }
+      function fleetSystemId(block, members) {
+        const coordinate = SaveFormat.block(SaveFormat.block(block, 'movement_manager'), 'coordinate') || SaveFormat.block(block, 'coordinate');
+        if (coordinate) return SaveFormat.scalar(coordinate, 'origin');
+        for (const id of members) {
+          const origin = SaveFormat.scalar(SaveFormat.block(shipBlocks.get(id), 'coordinate'), 'origin');
+          if (origin && origin !== NONE) return origin;
+        }
+        return '';
+      }
+      function militaryPower(block) {
+        const value = SaveFormat.scalar(block, 'military_power'), number = Number(value);
+        return value !== '' && Number.isFinite(number) && number >= 0 ? number : null;
+      }
+      const colonyTable = tables.get('colony') || SaveFormat.block(tables.get('colonies') || '', 'colony') || tables.get('colonies') || '';
+      const colonies = new Map(SaveFormat.entries(colonyTable).filter(entry => entry.key && entry.block !== undefined).map(entry => [entry.key, entry.block]));
+      const nomadStarts = {}, capitalStarts = {};
+      for (const country of countries.filter(country => !country.isNomadic)) {
+        const capitalId = SaveFormat.scalar(countryBlocks.get(country.id) || '', 'capital');
+        const carrier = SaveFormat.block(colonies.get(capitalId) || '', 'carrier');
+        const planetId = SaveFormat.scalar(carrier, 'type') === 'planet' ? SaveFormat.scalar(carrier, 'reference') : capitalId;
+        const system = planetSystems.get(planetId);
+        if (system) capitalStarts[country.id] = {systemId: system.id, name: system.name};
+      }
+      for (const country of countries.filter(country => country.isNomadic)) {
+        const capitalId = SaveFormat.scalar(countryBlocks.get(country.id) || '', 'capital');
+        const carrier = SaveFormat.block(colonies.get(capitalId) || '', 'carrier');
+        if (SaveFormat.scalar(carrier, 'type') !== 'ship') continue;
+        const shipId = SaveFormat.scalar(carrier, 'reference'), ship = shipBlocks.get(shipId);
+        if (!ship) continue;
+        const fleetId = SaveFormat.scalar(ship, 'fleet');
+        const systemId = fleetSystemId(fleetBlocks.get(fleetId) || '', [shipId]);
+        const fleet = country.fleetDetails.find(value => value.id === fleetId), capitalShip = fleet?.ships?.find(value => value.id === shipId);
+        // В некоторых сохранениях military_power есть только у флота; для единственного корабля это точное значение аркшипа.
+        const power = capitalShip?.power ?? (fleet?.ships?.length === 1 ? fleet.power : null);
+        if (systems.has(systemId)) nomadStarts[country.id] = {systemId, shipId, fleetId, name: English.saved(ship) || `Capital arkship #${shipId}`, power};
+      }
+      const fleetToCountry = new Map();
+      for (const country of countries) for (const id of ownedFleetIds(country.id)) fleetToCountry.set(id, country.id);
+      const shipToFleet = new Map();
+      for (const [id, block] of shipBlocks) {
+        const fleetId = SaveFormat.scalar(block, 'fleet');
+        if (fleetId) shipToFleet.set(id, fleetId);
+      }
+      for (const system of systems.values()) {
+        for (const starbaseId of system.starbaseIds) {
+          const station = SaveFormat.scalar(starbases.get(starbaseId), 'station');
+          const ownerId = fleetToCountry.get(shipToFleet.get(station) || '') || fleetToCountry.get(station);
+          if (ownerId) { system.ownerId = ownerId; break; }
+        }
+      }
+      const wars = [];
+      for (const entry of SaveFormat.entries(tables.get('war') || '')) {
+        if (!entry.block) continue;
+        const side = name => [...new Set(SaveFormat.entries(SaveFormat.block(entry.block, name)).map(item => item.block ? SaveFormat.scalar(item.block, 'country') : item.key === 'country' ? item.scalar : '').filter(Boolean))];
+        wars.push({attackers: side('attackers'), defenders: side('defenders')});
+      }
+      const relations = {};
+      for (const [id, block] of countryBlocks) {
+        relations[id] = relations[id] || {};
+        const faction = SaveFormat.factionFlags(SaveFormat.block(block, 'faction'));
+        relations[id].factionHostile = faction.hostile;
+        relations[id].factionNeutral = faction.neutral;
+        for (const entry of SaveFormat.entries(SaveFormat.block(block, 'relations_manager'))) {
+          if (entry.key !== 'relation' || !entry.block) continue;
+          const other = SaveFormat.scalar(entry.block, 'country');
+          if (!other) continue;
+          relations[id][other] = {
+            hostile: SaveFormat.scalar(entry.block, 'hostile') === '' ? undefined : SaveFormat.scalar(entry.block, 'hostile') === 'yes',
+            neutral: SaveFormat.scalar(entry.block, 'neutral') === 'yes',
+            friendly: SaveFormat.scalar(entry.block, 'friendly') === 'yes',
+            closedBorders: SaveFormat.scalar(entry.block, 'closed_borders') === 'yes'
+          };
+        }
+      }
+      const markers = [];
+      const presence = [];
+      const seenFleets = new Set();
+      function addMarker(kind, country, fleet, systemId, mapCategory) {
+        if (!systems.has(systemId) || seenFleets.has(fleet.id + kind)) return;
+        seenFleets.add(fleet.id + kind);
+        markers.push({kind, country, fleet, system: systems.get(systemId), mapCategory: mapCategory || country.category});
+      }
+      for (const country of countries) {
+        for (const id of ownedFleetIds(country.id)) {
+          const block = fleetBlocks.get(id);
+          if (!block) continue;
+          const members = fleetMembers(block);
+          const sizes = members.map(shipSize);
+          const systemId = fleetSystemId(block, members);
+          const station = SaveFormat.scalar(block, 'station') === 'yes';
+          const summary = country.fleetDetails.find(value => value.id === id);
+          const fleet = summary || {
+            id, name: English.saved(block) || `Object #${id}`, kind: station ? 'Station' : 'Fleet', total: members.length,
+            power: militaryPower(block), systemId, ships: sizes.map(size => ({size}))
+          };
+          if (sizes.some(size => ShipTypes.isWaystation(size))) addMarker('waystation', country, {...fleet, kind: 'Waystation'}, systemId);
+          else if (sizes.some(size => ShipTypes.isArkship(size)) || (summary?.ships || []).some(ship => ShipTypes.isArkship(ship.size))) addMarker('arkship', country, fleet, systemId);
+          else if (!station && summary?.kind === 'Military') addMarker('fleet', country, fleet, systemId);
+          const combatCapable = !!summary || SaveFormat.scalar(block, 'civilian') !== 'yes';
+          if (systems.has(systemId)) presence.push({kind: station ? 'station' : 'fleet', country, fleet, system: systems.get(systemId), combatCapable});
+        }
+      }
+      const neutral = [];
+      for (const country of countries.filter(country => !['player', 'ai'].includes(country.category))) {
+        for (const id of ownedFleetIds(country.id)) {
+          const block = fleetBlocks.get(id);
+          if (!block) continue;
+          const systemId = fleetSystemId(block, fleetMembers(block));
+          if (!systems.has(systemId)) continue;
+          const fleet = country.fleetDetails.find(value => value.id === id) || {
+            id, name: English.saved(block) || `Object #${id}`, kind: SaveFormat.scalar(block, 'station') === 'yes' ? 'Station' : 'Neutral fleet', total: null,
+            power: militaryPower(block), systemId
+          };
+          const identifyingText = [country.type, country.name, fleet.name, ...(fleet.ships || []).map(ship => ship.size)].join(' ').toLowerCase();
+          const mapCategory = /leviathan|guardian|dreadnought|dimensional_horror|enigmatic_fortress|space_dragon|stellarite|corrupted_avatar|scavenger_bot|shard/.test(identifyingText) ? 'leviathan' : country.category;
+          const marker = {country, fleet, system: systems.get(systemId), mapCategory};
+          marker.isEnclaveBranch = country.category === 'enclave' && fleetMembers(block).some(shipId => /^(?:enclave(?:_mercenary|_salvager|_shroudwalker|_mindwarden)?_station|military_arkship_champions_forge)$/.test(shipSize(shipId)));
+          neutral.push(marker);
+          addMarker('neutral', country, fleet, systemId, mapCategory);
+        }
+      }
+      const pois = [];
+      for (const system of systems.values()) {
+        const categoryDefinitions = SaveFormat.wanderlustCategories.filter(category => (system.flags || []).includes(category.starFlag));
+        if (!categoryDefinitions.length) continue;
+        const categoryIds = categoryDefinitions.map(category => category.id), categories = categoryDefinitions.map(category => English.expand(category.localization));
+        const visitedBy = (system.flags || []).map(flag => /^visited_by_nomad(\d+)$/.exec(flag)?.[1]).filter(Boolean);
+        pois.push({kind: 'wanderlust', system, categoryIds, categories, visitedBy});
+      }
+      return {
+        systems: [...systems.values()], neutral, markers, presence, pois, hiddenCutholoids, nomadStarts, capitalStarts, relations, wars,
+        countries: countries.filter(country => ['player', 'ai'].includes(country.category)),
+        wanderlustCountries: countries.filter(country => country.category === 'player' && country.isNomadic)
+      };
+    }
+    function render(countries, galaxy, info, fileName, gamestate, options = {}) { renderEmpires(countries, info, fileName); if (options.preserve) GalaxyMap.updateSave(galaxy); else GalaxyMap.render(galaxy); renderMapArtwork().catch(() => null); TechPlanner?.setSave({countries, gamestate}, options); }
+    function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, character => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' })[character]); }
+  </script>
+  <script src="live-map.js"></script>
+  <script src="live-runtime.js"></script>
+  <script src="game-art.js"></script>
+  <script src="economy.js"></script>
+  <script src="save-format.js?v=wanderlust-categories-20"></script>
+  <script src="technology.js?v=technology-planner-1"></script>
+  <script src="english.js"></script>
+  <script src="ship-types.js"></script>
+  <script src="combat-stats.js"></script>
+  <script src="fleets.js"></script>
+  <script src="fleet-art.js"></script>
+  <script src="presentation.js"></script>
+  <script src="map-layout.js?v=route-joints-6"></script>
+  <script src="map-borders.js?v=borders-13"></script>
+  <script src="map-threats.js?v=universal-threats-16"></script>
+  <script src="system-finder.js?v=finder-17"></script>
+  <script src="nomad-routes.js?v=threat-tiers-21"></script>
+  <script src="galaxy-map.js?v=threat-tiers-21"></script>
+  <script src="map-interface.js?v=route-joints-6"></script>
+</body>
+</html>
